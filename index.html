@@ -1,155 +1,222 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PAC-MAN · JS Portfolio</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&display=swap" />
-  <link rel="stylesheet" href="style.css" />
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>BABS' PAC-MAN 🍑 Georgia Peach Edition</title>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Playfair+Display:ital,wght@0,700;1,400&display=swap"/>
+
+<!-- Emoji favicon — no .ico file needed -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍑</text></svg>"/>
+
+<!-- Stylesheet -->
+<link rel="stylesheet" href="style.css"/>
+
+<!-- Social / Open Graph meta -->
+<meta property="og:title"        content="BABS' PAC-MAN 🍑"/>
+<meta property="og:description"  content="A Georgia Peach tribute to Barbara Jackson. Peach gives TRIPLE points!"/>
+<meta property="og:type"         content="website"/>
+<meta name="twitter:card"        content="summary"/>
+<meta name="twitter:title"       content="BABS' PAC-MAN 🍑"/>
+<meta name="twitter:description" content="Georgia Peach tribute game — Peach gives TRIPLE points!"/>
 </head>
 <body>
 
-  <!-- ── SCANLINE OVERLAY ── -->
-  <div class="scanlines" aria-hidden="true"></div>
+<!-- ══════════════════════════════════════
+     SPLASH  —  dedication screen on load
+     ══════════════════════════════════════ -->
+<div id="splash">
+  <div class="spl-peach">🍑</div>
+  <div class="spl-name">BARBARA JACKSON</div>
+  <div class="spl-aka">" Babs "</div>
+  <div class="spl-rule"></div>
+  <div class="spl-quote">
+    Sweet as a <em>Georgia peach</em>,<br/>
+    she played every game with all her heart.<br/>
+    This one's forever yours, Babs. 🍑
+  </div>
+  <div class="spl-georgia">✦ &nbsp; THE PEACH STATE &nbsp; ✦</div>
+  <div class="spl-tap">press any key or tap to play</div>
+</div>
 
-  <!-- ── HEADER ── -->
-  <header class="site-header">
-    <div class="logo">
-      <span class="logo-pac">●</span>
-      <span class="logo-name">PAC-MAN</span>
+<!-- ══════════════════════════════════════
+     HEADER
+     ══════════════════════════════════════ -->
+<header class="site-header">
+  <div class="logo">
+    <span class="logo-peach">🍑</span>
+    <div>
+      <div class="logo-title">BABS' PAC-MAN</div>
+      <div class="logo-sub">Georgia Peach Edition · For Barbara Jackson</div>
     </div>
-    <div class="header-right">
-      <span class="tag">ES6+</span>
-      <span class="tag">Canvas API</span>
-      <span class="tag">OOP</span>
-    </div>
-  </header>
+  </div>
+  <div class="babs-badge">🍑 TRIPLE PEACH POINTS</div>
+</header>
 
-  <!-- ── MAIN GAME AREA ── -->
-  <main class="game-area">
+<!-- ══════════════════════════════════════
+     GAME AREA  —  3-column flex layout
+       .panel--left | canvas | .panel--right
+     ══════════════════════════════════════ -->
+<main class="game-area">
 
-    <!-- LEFT PANEL: Score info -->
-    <aside class="panel panel--left">
-      <div class="panel-block">
-        <p class="panel-label">SCORE</p>
-        <p class="panel-value" id="score">00000</p>
-      </div>
-      <div class="panel-block">
-        <p class="panel-label">HIGH SCORE</p>
-        <p class="panel-value" id="highscore">00000</p>
-      </div>
-      <div class="panel-block">
-        <p class="panel-label">LEVEL</p>
-        <p class="panel-value" id="level">01</p>
-      </div>
-      <div class="panel-block">
-        <p class="panel-label">LIVES</p>
-        <div class="lives" id="lives">
-          <span class="life-icon">●</span>
-          <span class="life-icon">●</span>
-          <span class="life-icon">●</span>
-        </div>
-      </div>
-      <div class="panel-block panel-block--ghost-legend">
-        <p class="panel-label">GHOSTS</p>
-        <div class="ghost-legend">
-          <span class="gl-dot" style="color:#FF0000">◆</span><span>BLINKY</span>
-          <span class="gl-dot" style="color:#FFB8FF">◆</span><span>PINKY</span>
-          <span class="gl-dot" style="color:#00FFFF">◆</span><span>INKY</span>
-          <span class="gl-dot" style="color:#FFB852">◆</span><span>CLYDE</span>
-        </div>
-      </div>
-    </aside>
+  <!-- ── LEFT PANEL ── -->
+  <aside class="panel panel--left">
 
-    <!-- CANVAS WRAPPER -->
-    <div class="canvas-wrapper">
-      <canvas id="canvas"></canvas>
-
-      <!-- OVERLAY SCREENS -->
-      <div class="overlay" id="overlay-start">
-        <div class="overlay-inner">
-          <h1 class="overlay-title">PAC-MAN</h1>
-          <p class="overlay-sub">BUILT WITH VANILLA JS · ES6+</p>
-          <div class="overlay-divider"></div>
-          <p class="overlay-hint">PRESS <kbd>ENTER</kbd> OR <kbd>SPACE</kbd> TO START</p>
-          <p class="overlay-hint small">WASD / ARROW KEYS TO MOVE</p>
-        </div>
-      </div>
-
-      <div class="overlay overlay--hidden" id="overlay-gameover">
-        <div class="overlay-inner">
-          <h2 class="overlay-title overlay-title--red">GAME OVER</h2>
-          <p class="overlay-score-label">FINAL SCORE</p>
-          <p class="overlay-final-score" id="final-score">00000</p>
-          <div class="overlay-divider"></div>
-          <p class="overlay-hint">PRESS <kbd>ENTER</kbd> TO RETRY</p>
-        </div>
-      </div>
-
-      <div class="overlay overlay--hidden" id="overlay-levelclear">
-        <div class="overlay-inner">
-          <h2 class="overlay-title overlay-title--cyan">STAGE CLEAR!</h2>
-          <p class="overlay-hint blink">LOADING NEXT LEVEL…</p>
-        </div>
-      </div>
-
-      <div class="ready-text overlay--hidden" id="ready-text">READY!</div>
+    <div class="panel-block">
+      <p class="panel-label">YOUR SCORE</p>
+      <p class="panel-value" id="score">0000000</p>
     </div>
 
-    <!-- RIGHT PANEL: Controls & tech notes -->
-    <aside class="panel panel--right">
-      <div class="panel-block">
-        <p class="panel-label">CONTROLS</p>
-        <div class="controls-grid">
-          <div class="ctrl-row">
-            <kbd>W</kbd> / <kbd>▲</kbd>
-            <span>UP</span>
-          </div>
-          <div class="ctrl-row">
-            <kbd>S</kbd> / <kbd>▼</kbd>
-            <span>DOWN</span>
-          </div>
-          <div class="ctrl-row">
-            <kbd>A</kbd> / <kbd>◀</kbd>
-            <span>LEFT</span>
-          </div>
-          <div class="ctrl-row">
-            <kbd>D</kbd> / <kbd>▶</kbd>
-            <span>RIGHT</span>
-          </div>
+    <!-- BABS' legendary unbeatable score — read-only, set in game.js -->
+    <div class="panel-block babs-hi">
+      <p class="panel-label">BABS' BEST</p>
+      <p class="panel-value" id="highscore">3333330</p>
+      <p class="babs-hi-label">Barbara Jackson · 1987</p>
+    </div>
+
+    <div class="panel-block">
+      <p class="panel-label">LEVEL</p>
+      <p class="panel-value" id="level">01</p>
+    </div>
+
+    <div class="panel-block">
+      <p class="panel-label">LIVES</p>
+      <div class="lives" id="lives-display">
+        <span class="life-icon">🍑</span>
+        <span class="life-icon">🍑</span>
+        <span class="life-icon">🍑</span>
+      </div>
+    </div>
+
+    <div class="panel-block">
+      <p class="panel-label">ACTIVE BONUS</p>
+      <div class="active-fruit-wrap" id="active-fruit-wrap">
+        <span class="active-fruit-icon" id="active-fruit-icon">·</span>
+        <div class="active-fruit-info">
+          <span class="active-fruit-name" id="active-fruit-name">—</span>
+          <span class="active-fruit-pts"  id="active-fruit-pts"></span>
         </div>
       </div>
-      <div class="panel-block">
-        <p class="panel-label">TECH USED</p>
-        <ul class="tech-list">
-          <li>ES6 Classes &amp; Inheritance</li>
-          <li>Canvas 2D API</li>
-          <li>requestAnimationFrame</li>
-          <li>Destructuring &amp; Spread</li>
-          <li>Arrow Functions</li>
-          <li>Template Literals</li>
-          <li>Map / Filter / Reduce</li>
-          <li>LocalStorage API</li>
-          <li>State Machine Pattern</li>
-          <li>Observer / Event Bus</li>
-        </ul>
-      </div>
-    </aside>
-
-  </main>
-
-  <!-- MOBILE D-PAD -->
-  <div class="dpad" id="dpad">
-    <button class="dpad-btn" id="dpad-up">▲</button>
-    <div class="dpad-middle">
-      <button class="dpad-btn" id="dpad-left">◀</button>
-      <div class="dpad-center"></div>
-      <button class="dpad-btn" id="dpad-right">▶</button>
     </div>
-    <button class="dpad-btn" id="dpad-down">▼</button>
+
+  </aside>
+
+  <!-- ── CANVAS + OVERLAYS ── -->
+  <div class="canvas-wrapper">
+    <canvas id="canvas"></canvas>
+
+    <!-- Start screen -->
+    <div class="overlay" id="overlay-start">
+      <div class="overlay-inner">
+        <span class="ov-peach">🍑</span>
+        <h1 class="ov-title">BABS' PAC-MAN</h1>
+        <p class="ov-dedication">
+          For <strong>Barbara "Babs" Jackson</strong><br/>
+          Georgia's greatest Pac-Man player 🍑
+        </p>
+        <div class="ov-divider"></div>
+        <p class="ov-hint peach">🍑 PEACH = TRIPLE POINTS!</p>
+        <div class="ov-divider"></div>
+        <p class="ov-hint">PRESS <kbd>ENTER</kbd> OR <kbd>SPACE</kbd></p>
+        <p class="ov-hint dim">WASD / ARROW KEYS TO MOVE</p>
+      </div>
+    </div>
+
+    <!-- Game Over screen -->
+    <div class="overlay overlay--hidden" id="overlay-gameover">
+      <div class="overlay-inner">
+        <h2 class="ov-title ov-title--red">GAME OVER</h2>
+        <p class="ov-score-lbl">YOUR SCORE</p>
+        <p class="ov-final" id="final-score">0000000</p>
+        <div class="ov-divider"></div>
+        <p class="ov-msg" id="gameover-msg">Babs would've kept going! 🍑</p>
+        <div class="ov-divider"></div>
+        <p class="ov-hint blink">PRESS <kbd>ENTER</kbd> TO TRY AGAIN</p>
+      </div>
+    </div>
+
+    <!-- Level Clear screen -->
+    <div class="overlay overlay--hidden" id="overlay-levelclear">
+      <div class="overlay-inner">
+        <span class="ov-peach" style="font-size:30px">🍑</span>
+        <h2 class="ov-title ov-title--green">PEACH PERFECT!</h2>
+        <p class="ov-hint peach" style="margin-top:6px;">Babs is proud of you 🍑</p>
+        <p class="ov-hint blink" style="margin-top:10px;">NEXT LEVEL…</p>
+      </div>
+    </div>
+
+    <div class="ready-text overlay--hidden" id="ready-text">READY!</div>
   </div>
 
-  <script src="game.js" type="module"></script>
+  <!-- ── RIGHT PANEL ── -->
+  <aside class="panel panel--right">
+
+    <div class="panel-block">
+      <p class="panel-label">CONTROLS</p>
+      <div class="controls-list">
+        <div class="ctrl-row"><span><kbd>W</kbd>/<kbd>▲</kbd></span><span>Up</span></div>
+        <div class="ctrl-row"><span><kbd>S</kbd>/<kbd>▼</kbd></span><span>Down</span></div>
+        <div class="ctrl-row"><span><kbd>A</kbd>/<kbd>◀</kbd></span><span>Left</span></div>
+        <div class="ctrl-row"><span><kbd>D</kbd>/<kbd>▶</kbd></span><span>Right</span></div>
+      </div>
+    </div>
+
+    <div class="panel-block">
+      <p class="panel-label">FRUIT BONUSES</p>
+      <div class="fruit-table">
+        <div class="fruit-row"><span class="fi">🍒</span><span class="fn">Cherry</span>    <span class="fv">100</span></div>
+        <div class="fruit-row"><span class="fi">🍓</span><span class="fn">Strawberry</span><span class="fv">300</span></div>
+        <div class="fruit-row"><span class="fi">🟠</span><span class="fn">Orange</span>     <span class="fv">500</span></div>
+        <div class="fruit-row"><span class="fi">🍎</span><span class="fn">Apple</span>      <span class="fv">700</span></div>
+        <div class="fruit-row"><span class="fi">🍈</span><span class="fn">Melon</span>      <span class="fv">1000</span></div>
+        <div class="fruit-row"><span class="fi">🍇</span><span class="fn">Grapes</span>     <span class="fv">2000</span></div>
+        <div class="fruit-row"><span class="fi">🍉</span><span class="fn">Watermelon</span><span class="fv">3000</span></div>
+        <div class="fruit-row"><span class="fi">🔔</span><span class="fn">Bell</span>       <span class="fv">3000</span></div>
+        <div class="fruit-row"><span class="fi">🗝️</span><span class="fn">Key</span>        <span class="fv">5000</span></div>
+        <div class="fruit-row peach-row">
+          <span class="fi">🍑</span>
+          <span class="fn">Peach<span class="triple-badge">×3!</span></span>
+          <span class="fv">🍑×3</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-block">
+      <p class="panel-label">GHOST POINTS</p>
+      <div class="ghost-pts">
+        <div class="gp-row"><span>1st ghost</span><span>200</span></div>
+        <div class="gp-row"><span>2nd ghost</span><span>400</span></div>
+        <div class="gp-row"><span>3rd ghost</span><span>800</span></div>
+        <div class="gp-row"><span>4th ghost</span><span>1600</span></div>
+      </div>
+    </div>
+
+    <div class="panel-block">
+      <p class="panel-label">IN MEMORY</p>
+      <p class="memorial-quote">"Sweet as a Georgia<br/>peach — always." 🍑</p>
+    </div>
+
+  </aside>
+
+</main>
+
+<!-- ══ MOBILE D-PAD ══ -->
+<div class="dpad">
+  <button class="dpad-btn" id="dpad-up">▲</button>
+  <div class="dpad-middle">
+    <button class="dpad-btn" id="dpad-left">◀</button>
+    <div class="dpad-center"></div>
+    <button class="dpad-btn" id="dpad-right">▶</button>
+  </div>
+  <button class="dpad-btn" id="dpad-down">▼</button>
+</div>
+
+<!-- type="module" is required for ES6 class syntax + private fields -->
+<script type="module" src="game.js"></script>
+
 </body>
 </html>
+
