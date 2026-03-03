@@ -17,10 +17,10 @@
 // § 1  TRIBUTE
 // ══════════════════════════════════════════════════════════
 const TRIBUTE = Object.freeze({
-  name:     'Barbara Jackson',
+  name:     'Barbara R. Jackson',
   nickname: 'BABS',
   hiScore:  3_333_330,
-  hiYear:   '1987',
+  hiYear:   '1995',
   gameoverMessages: [
     "Babs would've kept going! 🍑",
     "Sweet as a peach — try again! 🍑",
