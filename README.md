@@ -7,7 +7,7 @@
 
 ## 🎮 Play Live
 
-**[👉 Click here to play](https://YOUR-USERNAME.github.io/babs-pacman)**
+**[👉 Click here to play](https://kaniyakm.github.io/pacman-peach/)**
 
 > Replace `YOUR-USERNAME` with your GitHub username after deploying.
 
