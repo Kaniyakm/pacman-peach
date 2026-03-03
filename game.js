@@ -376,8 +376,8 @@ class Maze {
   get dotsLeft(){return this.#dotsLeft;}
   get cleared(){return this.#dotsLeft<=0;}
 
-  *walls()  {for(let r=0;r<CFG.ROWS;r++)for(let c=0;c<CFG.COLS;c++)if(this.#grid[r][c]===TILE_TYPE.WALL) yield{r,c};}
-  *pickups(){for(let r=0;r<CFG.ROWS;r++)for(let c=0;c<CFG.COLS;c++){const v=this.#grid[r][c];if(v===TILE_TYPE.DOT||v===TILE_TYPE.POWER)yield{r,c,type:v};}}
+  *walls()  {if(!this.#grid.length)return;for(let r=0;r<CFG.ROWS;r++)for(let c=0;c<CFG.COLS;c++)if(this.#grid[r]?.[c]===TILE_TYPE.WALL) yield{r,c};}
+  *pickups(){if(!this.#grid.length)return;for(let r=0;r<CFG.ROWS;r++)for(let c=0;c<CFG.COLS;c++){const v=this.#grid[r]?.[c];if(v===TILE_TYPE.DOT||v===TILE_TYPE.POWER)yield{r,c,type:v};}}
 
   draw(ctx,frame){
     const T=CFG.TILE;
@@ -625,6 +625,7 @@ class Game {
     this.#canvas.width=CFG.COLS*CFG.TILE;
     this.#canvas.height=CFG.ROWS*CFG.TILE;
     this.#bindInput();
+    this.#maze.clone();   // pre-load grid so first draw frame never hits empty array
     document.getElementById('highscore').textContent=String(TRIBUTE.hiScore).padStart(7,'0');
     HUD.show('overlay-start');
     requestAnimationFrame(this.#loop);
