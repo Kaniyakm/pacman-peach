@@ -1,6 +1,6 @@
 # 🍑 BABS' PAC-MAN — Georgia Peach Edition
 
-> A tribute to **Barbara "Babs" Jackson** — Georgia's greatest Pac-Man player.
+> A tribute to **Barbara "Bab" Jackson** — Georgia's greatest Pac-Man player.
 > Built with pure Vanilla JavaScript ES6+. No frameworks. No dependencies. Just love.
 
 ---
