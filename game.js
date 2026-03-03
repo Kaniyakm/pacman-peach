@@ -2,7 +2,7 @@
  * BABS' PAC-MAN — Georgia Peach Edition
  * game.js  —  full game logic + sprite sheet rendering
  *
- * For Barbara "Babs" Jackson  🍑
+ * For Barbara "Bab" Jackson  🍑
  *
  * Sprite sheets (32px cells):
  *   assets/sprites/pacman.png   8×4  — right/up/down rows + death row
@@ -18,14 +18,14 @@
 // ══════════════════════════════════════════════════════════
 const TRIBUTE = Object.freeze({
   name:     'Barbara R. Jackson',
-  nickname: 'BABS',
+  nickname: 'BAB',
   hiScore:  3_333_330,
   hiYear:   '1995',
   gameoverMessages: [
-    "Babs would've kept going! 🍑",
+    "Bab would've kept going! 🍑",
     "Sweet as a peach — try again! 🍑",
     "Georgia never quits! 🍑",
-    "One more for Babs! 🍑",
+    "One more for Bab! 🍑",
     "She never gave up — neither should you! 🍑",
     "Babs scored higher with her eyes closed! 🍑",
   ],
