@@ -1,15 +1,17 @@
 /**
  * BABS' PAC-MAN — Georgia Peach Edition
- * game.js  —  full game logic + sprite sheet rendering
+ * game.js  —  full game logic + sprite rendering + sound
  *
- * For Barbara "Bab" Jackson  🍑
+ * For Barbara "Babs" Jackson  🍑
  *
+ * Requires: sound.js (same folder)
  * Sprite sheets (32px cells):
- *   assets/sprites/pacman.png   8×4  — right/up/down rows + death row
- *   assets/sprites/ghosts.png   8×7  — 4 ghosts + fright + flash + eyes
- *   assets/sprites/fruits.png  10×2  — all 10 fruits + glow row
- *   assets/sprites/pellets.png  6×2  — dot + 5 power frames
+ *   assets/sprites/pacman.png   8×4
+ *   assets/sprites/ghosts.png   8×7
+ *   assets/sprites/fruits.png  10×2
+ *   assets/sprites/pellets.png  6×2
  */
+
 import { snd } from './sound.js';
 
 'use strict';
@@ -18,15 +20,15 @@ import { snd } from './sound.js';
 // § 1  TRIBUTE
 // ══════════════════════════════════════════════════════════
 const TRIBUTE = Object.freeze({
-  name:     'Barbara R. Jackson',
-  nickname: 'BAB',
+  name:     'Barbara Jackson',
+  nickname: 'BABS',
   hiScore:  3_333_330,
-  hiYear:   '1995',
+  hiYear:   '1987',
   gameoverMessages: [
-    "Bab would've kept going! 🍑",
+    "Babs would've kept going! 🍑",
     "Sweet as a peach — try again! 🍑",
     "Georgia never quits! 🍑",
-    "One more for Bab! 🍑",
+    "One more for Babs! 🍑",
     "She never gave up — neither should you! 🍑",
     "Babs scored higher with her eyes closed! 🍑",
   ],
@@ -62,40 +64,12 @@ const STATE = Object.freeze({
 
 // ══════════════════════════════════════════════════════════
 // § 3  SPRITE SHEET SYSTEM
-//
-//  pacman.png  (256×128 = 8 cols × 4 rows × 32px)
-//    row 0: RIGHT  8 mouth frames (open→close cycle)
-//    row 1: UP     8 frames
-//    row 2: DOWN   8 frames
-//    row 3: DEATH  8 frames (shrink/collapse)
-//
-//  ghosts.png  (256×224 = 8 cols × 7 rows × 32px)
-//    row 0: BLINKY  2 walk frames × 4 dirs (R L U D)
-//    row 1: PINKY   same layout
-//    row 2: INKY    same layout
-//    row 3: CLYDE   same layout
-//    row 4: FRIGHTENED 8 frames
-//    row 5: FLASH   8 frames (fright ending)
-//    row 6: EYES    4 dirs × 2
-//
-//  fruits.png  (320×64 = 10 cols × 2 rows × 32px)
-//    cols: cherry strawberry orange apple melon
-//          grapes watermelon bell key peach
-//    row 0: normal   row 1: collection glow
-//
-//  pellets.png (192×64 = 6 cols × 2 rows × 32px)
-//    col 0:   dot
-//    col 1-5: power pellet pulse frames
-//    row 0: normal   row 1: collected/burst
 // ══════════════════════════════════════════════════════════
-
 class SpriteSheet {
   #img   = null;
   #ready = false;
-  #src;
 
   constructor(src) {
-    this.#src = src;
     this.#img = new Image();
     this.#img.onload  = () => { this.#ready = true; };
     this.#img.onerror = () => console.warn(`Sprite load failed: ${src}`);
@@ -104,16 +78,6 @@ class SpriteSheet {
 
   get ready() { return this.#ready; }
 
-  /**
-   * blit — draw one 32×32 cell centred at (dx, dy) on canvas
-   * @param {CanvasRenderingContext2D} ctx
-   * @param {number} col   source column (0-based)
-   * @param {number} row   source row    (0-based)
-   * @param {number} dx    destination centre x
-   * @param {number} dy    destination centre y
-   * @param {number} scale optional scale (default = CFG.TILE/CFG.CELL)
-   * @param {boolean} flipX mirror horizontally (for left-facing Pac-Man)
-   */
   blit(ctx, col, row, dx, dy, scale, flipX = false) {
     if (!this.#ready) return false;
     const C   = CFG.CELL;
@@ -139,24 +103,16 @@ const SPRITES = {
   pellets: new SpriteSheet('assets/sprites/pellets.png'),
 };
 
-// ── Sprite index helpers ──────────────────────────────────
-
-/** Pac-Man sprite row from current direction */
 function pacRow(dx, dy) {
-  if (dy < 0) return 1;  // up
-  if (dy > 0) return 2;  // down
-  return 0;              // right (and left — flipped via ctx.scale)
+  if (dy < 0) return 1;
+  if (dy > 0) return 2;
+  return 0;
 }
-
-/** Pac-Man mouth column (0–7) from global frame counter */
 function pacCol(frame) {
   const f = frame % 16;
   return f < 8 ? Math.floor(f / 2) : 7 - Math.floor(f / 2);
 }
-
-/** Ghost body sprite column from direction + walk frame */
 function ghostBodyCol(dx, dy, frame) {
-  // Layout: R0 R1 | L0 L1 | U0 U1 | D0 D1
   let dirIdx = 0;
   if      (dx  > 0) dirIdx = 0;
   else if (dx  < 0) dirIdx = 1;
@@ -171,9 +127,8 @@ const FRUIT_COL = new Map([
 ]);
 
 // ══════════════════════════════════════════════════════════
-// § 4  CANVAS FALLBACKS  (used when sprites not yet loaded)
+// § 4  CANVAS FALLBACKS
 // ══════════════════════════════════════════════════════════
-
 function fbPacman(ctx, x, y, dx, dy, mouthDeg, dying, deathPct) {
   const r = CFG.TILE * 0.47;
   ctx.save(); ctx.translate(x, y);
@@ -202,7 +157,6 @@ function fbGhost(ctx, x, y, color, dx, dy, frightened, frightTimer, frame) {
   const pts=[-r,-r/3,r/3,r];
   for(let i=0;i<3;i++){const mx=(pts[i]+pts[i+1])/2,py=i%2===0?r*.85:r*.5;ctx.quadraticCurveTo(mx,py,pts[i+1],r*(i%2===0?.5:.85));}
   ctx.closePath(); ctx.fill();
-  // Eyes
   [[-0.3,-0.22],[0.3,-0.22]].forEach(([ex,ey])=>{
     ctx.fillStyle='white'; ctx.beginPath(); ctx.ellipse(r*ex,r*ey,r*.21,r*.25,0,0,Math.PI*2); ctx.fill();
     if(!frightened){ctx.fillStyle='#1144FF';ctx.beginPath();ctx.arc(r*ex+dx*r*.09,r*ey+dy*r*.09,r*.12,0,Math.PI*2);ctx.fill();}
@@ -234,20 +188,43 @@ function fbFruit(ctx, x, y, def) {
 }
 
 // ══════════════════════════════════════════════════════════
-// § 5  BONUS FRUIT
+// § 5  FRUITS
+// ══════════════════════════════════════════════════════════
+const FRUITS = Object.freeze([
+  { id:'cherry',     name:'Cherry',     basePoints:100,  mult:1, minLevel:1 },
+  { id:'strawberry', name:'Strawberry', basePoints:300,  mult:1, minLevel:2 },
+  { id:'orange',     name:'Orange',     basePoints:500,  mult:1, minLevel:3 },
+  { id:'apple',      name:'Apple',      basePoints:700,  mult:1, minLevel:4 },
+  { id:'melon',      name:'Melon',      basePoints:1000, mult:1, minLevel:5 },
+  { id:'grapes',     name:'Grapes',     basePoints:2000, mult:1, minLevel:6 },
+  { id:'watermelon', name:'Watermelon', basePoints:3000, mult:1, minLevel:7 },
+  { id:'bell',       name:'Bell',       basePoints:3000, mult:1, minLevel:8 },
+  { id:'key',        name:'Key',        basePoints:5000, mult:1, minLevel:9 },
+  { id:'peach',      name:'Peach',      basePoints:500,  mult:3, minLevel:1 },
+]);
+
+function fruitForLevel(level) {
+  const eligible  = FRUITS.filter(f => f.id !== 'peach' && f.minLevel <= level);
+  const canonical = eligible.length ? eligible[eligible.length - 1] : FRUITS[0];
+  const peachChance = Math.min(0.20 + (level - 1) * 0.04, 0.45);
+  return Math.random() < peachChance ? FRUITS.find(f => f.id === 'peach') : canonical;
+}
+
+// ══════════════════════════════════════════════════════════
+// § 6  BONUS FRUIT
 // ══════════════════════════════════════════════════════════
 class BonusFruit {
   #def; #x; #y; #timer; #collected=false; #bobFrame=0; #collectFrame=-1;
 
   constructor(def,x,y,duration=480){this.#def=def;this.#x=x;this.#y=y;this.#timer=duration;}
 
-  get def()       {return this.#def;}
-  get x()         {return this.#x;}
-  get y()         {return this.#y;}
-  get alive()     {return !this.#collected && this.#timer>0;}
-  get collected() {return this.#collected;}
+  get def()       { return this.#def; }
+  get x()         { return this.#x; }
+  get y()         { return this.#y; }
+  get alive()     { return !this.#collected && this.#timer>0; }
+  get collected() { return this.#collected; }
 
-  collect() {this.#collected=true; this.#collectFrame=0;}
+  collect() { this.#collected=true; this.#collectFrame=0; }
 
   update() {
     this.#timer--;
@@ -257,20 +234,15 @@ class BonusFruit {
 
   draw(ctx, globalFrame) {
     if (!this.alive && this.#collectFrame<0) return;
-    const {x,y}=this, T=CFG.TILE;
+    const {x,y}=this;
     const bob  = Math.sin(this.#bobFrame*.1)*2;
     const fade = this.#timer<90 ? this.#timer/90 : 1;
     const col  = FRUIT_COL.get(this.#def.id) ?? 0;
-
     ctx.save();
     ctx.globalAlpha = this.#collected ? Math.max(0,1-this.#collectFrame/12) : fade;
-
-    // Try sprite — row 1 if just collected (glow), else row 0
     const row = (this.#collected && this.#collectFrame<8) ? 1 : 0;
     const drawn = SPRITES.fruits.blit(ctx, col, row, x, y+bob);
     if (!drawn) fbFruit(ctx, x, y+bob, this.#def);
-
-    // Peach: extra shimmer glow on row 0 using sprite sheet row 1 blended
     if (!this.#collected && this.#def.id==='peach') {
       const pulse = 0.3+0.25*Math.sin(this.#bobFrame*.12);
       ctx.globalAlpha = fade*pulse;
@@ -281,7 +253,7 @@ class BonusFruit {
 }
 
 // ══════════════════════════════════════════════════════════
-// § 6  SCORE POPUP
+// § 7  SCORE POPUP
 // ══════════════════════════════════════════════════════════
 class ScorePopup {
   constructor(x,y,value,isTriple=false){this.x=x;this.y=y;this.value=value;this.isTriple=isTriple;this.life=75;}
@@ -301,7 +273,7 @@ class ScorePopup {
 }
 
 // ══════════════════════════════════════════════════════════
-// § 7  EVENT BUS
+// § 8  EVENT BUS
 // ══════════════════════════════════════════════════════════
 class EventBus {
   #map=new Map();
@@ -312,7 +284,7 @@ class EventBus {
 const bus=new EventBus();
 
 // ══════════════════════════════════════════════════════════
-// § 8  SCORE MANAGER  — BABS' hi-score is sacred
+// § 9  SCORE MANAGER
 // ══════════════════════════════════════════════════════════
 class ScoreManager {
   #score=0; #ghostMul=1;
@@ -323,10 +295,11 @@ class ScoreManager {
   get score(){return this.#score;}
   ghostEaten(){const p=CFG.SCORE.GHOST_BASE*this.#ghostMul;this.#ghostMul=Math.min(this.#ghostMul*2,8);this.add(p);return p;}
   resetGhostMul(){this.#ghostMul=1;}
+  get ghostMul(){return this.#ghostMul;}
 }
 
 // ══════════════════════════════════════════════════════════
-// § 9  MAP
+// § 10  MAP
 // ══════════════════════════════════════════════════════════
 const BASE_MAP=[
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
@@ -355,7 +328,7 @@ const BASE_MAP=[
 ];
 
 // ══════════════════════════════════════════════════════════
-// § 10  MAZE
+// § 11  MAZE
 // ══════════════════════════════════════════════════════════
 class Maze {
   #grid=[]; #dotsLeft=0;
@@ -390,13 +363,11 @@ class Maze {
     for(const{r,c,type}of this.pickups()){
       const cx=c*T+T/2,cy=r*T+T/2;
       if(type===TILE_TYPE.DOT){
-        // Sprite col 0 row 0
-        const drawn = SPRITES.pellets.blit(ctx,0,0,cx,cy);
+        const drawn=SPRITES.pellets.blit(ctx,0,0,cx,cy);
         if(!drawn){ctx.fillStyle='#FFB8AE';ctx.beginPath();ctx.arc(cx,cy,2.2,0,Math.PI*2);ctx.fill();}
       } else {
-        // Power pellet: animate through cols 1-5
-        const pCol = 1 + Math.floor(frame/8)%5;
-        const drawn = SPRITES.pellets.blit(ctx,pCol,0,cx,cy);
+        const pCol=1+Math.floor(frame/8)%5;
+        const drawn=SPRITES.pellets.blit(ctx,pCol,0,cx,cy);
         if(!drawn){
           const sc=.72+.28*Math.sin(frame*.14);
           ctx.save();ctx.shadowColor='#FFAB76';ctx.shadowBlur=14;
@@ -418,7 +389,7 @@ class Maze {
 }
 
 // ══════════════════════════════════════════════════════════
-// § 11  ENTITY BASE
+// § 12  ENTITY BASE
 // ══════════════════════════════════════════════════════════
 class Entity {
   constructor(x,y,speed){this.x=x;this.y=y;this.dx=0;this.dy=0;this.speed=speed;}
@@ -437,7 +408,7 @@ class Entity {
 }
 
 // ══════════════════════════════════════════════════════════
-// § 12  PAC-MAN  (sprite-driven + canvas fallback)
+// § 13  PAC-MAN
 // ══════════════════════════════════════════════════════════
 class Pacman extends Entity {
   #mouth=.25; #mouthDir=1; #nextDx=0; #nextDy=0;
@@ -459,29 +430,26 @@ class Pacman extends Entity {
 
   draw(ctx,globalFrame,dying=false){
     const {x,y}=this;
-
     if(dying){
-      const row=3;
       const col=Math.min(7,Math.floor(this.deathFrame/(CFG.DEATH_FRAMES/8)));
-      const drawn=SPRITES.pacman.blit(ctx,col,row,x,y);
+      const drawn=SPRITES.pacman.blit(ctx,col,3,x,y);
       if(!drawn)fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,true,this.deathFrame);
       return;
     }
-
-    const row     = pacRow(this.dx,this.dy);
-    const col     = pacCol(globalFrame);
-    const flipX   = this.dx<0;   // mirror sprite for left-facing
-    const drawn   = SPRITES.pacman.blit(ctx,col,row,x,y,undefined,flipX);
+    const row=pacRow(this.dx,this.dy);
+    const col=pacCol(globalFrame);
+    const flipX=this.dx<0;
+    const drawn=SPRITES.pacman.blit(ctx,col,row,x,y,undefined,flipX);
     if(!drawn)fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,false,0);
   }
 }
 
 // ══════════════════════════════════════════════════════════
-// § 13  GHOST  (sprite-driven + canvas fallback)
+// § 14  GHOST
 // ══════════════════════════════════════════════════════════
 const GhostAI={
-  blinky:(g,pac)=>{return{x:pac.x,y:pac.y};},
-  pinky: (g,pac)=>{return{x:pac.x+pac.dx*CFG.TILE*4,y:pac.y+pac.dy*CFG.TILE*4};},
+  blinky:(g,pac)=>({x:pac.x,y:pac.y}),
+  pinky: (g,pac)=>({x:pac.x+pac.dx*CFG.TILE*4,y:pac.y+pac.dy*CFG.TILE*4}),
   inky:  (g,pac,all)=>{const b=all[0],px=pac.x+pac.dx*CFG.TILE*2,py=pac.y+pac.dy*CFG.TILE*2;return{x:px*2-b.x,y:py*2-b.y};},
   clyde: (g,pac)=>Math.hypot(g.x-pac.x,g.y-pac.y)>CFG.TILE*8?{x:pac.x,y:pac.y}:{x:0,y:CFG.ROWS*CFG.TILE},
 };
@@ -495,12 +463,14 @@ const GHOST_DEFS=Object.freeze([
 ]);
 
 class Ghost extends Entity {
-  #frightened=false;#eaten=false;#inHouse=true;#leaveTimer=0;#ai;#idx;
-  color;name;
+  #frightened=false; #eaten=false; #inHouse=true; #leaveTimer=0; #ai; #idx;
+  color; name;
 
   constructor({name,color,startCol,startRow},idx,speed){
-    const T=CFG.TILE;super(startCol*T+T/2,startRow*T+T/2,speed);
-    this.name=name;this.color=color;this.#idx=idx;this.#ai=AI_FNS[idx];this.#leaveTimer=idx*90;this.dy=-1;
+    const T=CFG.TILE;
+    super(startCol*T+T/2,startRow*T+T/2,speed);
+    this.name=name; this.color=color; this.#idx=idx;
+    this.#ai=AI_FNS[idx]; this.#leaveTimer=idx*90; this.dy=-1;
   }
 
   get frightened(){return this.#frightened;}
@@ -511,8 +481,8 @@ class Ghost extends Entity {
   setEaten(){this.#eaten=true;this.#frightened=false;}
 
   resetToHouse(){
-    this.#eaten=false;this.#inHouse=true;this.#leaveTimer=60;
-    this.x=CFG.TILE*10+CFG.TILE/2;this.y=CFG.TILE*9+CFG.TILE/2;
+    this.#eaten=false; this.#inHouse=true; this.#leaveTimer=60;
+    this.x=CFG.TILE*10+CFG.TILE/2; this.y=CFG.TILE*9+CFG.TILE/2;
   }
 
   update(maze,pac,all,frame){
@@ -524,7 +494,10 @@ class Ghost extends Entity {
       if(this.#leaveTimer<=0){this.#inHouse=false;this.x=T*10+T/2;this.y=T*9+T/2;this.dx=0;this.dy=-1;}
       return;
     }
-    if(this.#eaten){const hx=T*10+T/2,hy=T*9+T/2;if(Math.hypot(this.x-hx,this.y-hy)<spd+1){this.resetToHouse();return;}}
+    if(this.#eaten){
+      const hx=T*10+T/2,hy=T*9+T/2;
+      if(Math.hypot(this.x-hx,this.y-hy)<spd+1){this.resetToHouse();return;}
+    }
     const aligned=Math.abs(this.x-this.tileX)<spd+.5&&Math.abs(this.y-this.tileY)<spd+.5;
     if(aligned){this.x=this.tileX;this.y=this.tileY;this.#chooseDir(maze,pac,all);}
     if(!this._hitsWall(maze,this.x+this.dx*spd,this.y+this.dy*spd)){this.x+=this.dx*spd;this.y+=this.dy*spd;}
@@ -545,10 +518,8 @@ class Ghost extends Entity {
     const {x,y}=this;
     ctx.save();
     if(this.#inHouse)ctx.globalAlpha=.5;
-
     let drawn=false;
     if(this.#eaten){
-      // Eyes only — row 6, col based on direction
       let dirCol=0;
       if(this.dx>0)dirCol=0;else if(this.dx<0)dirCol=2;
       else if(this.dy<0)dirCol=4;else dirCol=6;
@@ -564,14 +535,13 @@ class Ghost extends Entity {
       const col=ghostBodyCol(this.dx,this.dy,globalFrame);
       drawn=SPRITES.ghosts.blit(ctx,col,row,x,y);
     }
-
     if(!drawn)fbGhost(ctx,x,y,this.color,this.dx,this.dy,this.#frightened,frightTimer,globalFrame);
     ctx.restore();
   }
 }
 
 // ══════════════════════════════════════════════════════════
-// § 14  HUD
+// § 15  HUD
 // ══════════════════════════════════════════════════════════
 const HUD={
   setLevel(n){document.getElementById('level').textContent=String(n).padStart(2,'0');},
@@ -581,6 +551,10 @@ const HUD={
   setFinalScore(n){document.getElementById('final-score').textContent=String(n).padStart(7,'0');},
   setGameOverMsg(m){document.getElementById('gameover-msg').textContent=m;},
   setReady(on){document.getElementById('ready-text')?.classList.toggle('overlay--hidden',!on);},
+  setMuteBtn(muted){
+    const btn=document.getElementById('mute-btn');
+    if(btn)btn.textContent=muted?'🔇 MUTED':'🔊 SOUND';
+  },
   setActiveFruit(def){
     if(!def){
       document.getElementById('active-fruit-icon').textContent='·';
@@ -599,26 +573,27 @@ const HUD={
 };
 
 // ══════════════════════════════════════════════════════════
-// § 15  GAME — state machine
+// § 16  GAME — state machine
 // ══════════════════════════════════════════════════════════
 class Game {
-  #canvas;#ctx;
-  #maze=new Maze();
-  #score=new ScoreManager();
-  #pac=null;
-  #ghosts=[];
-  #popups=[];
-  #bonus=null;
-  #state=STATE.IDLE;
-  #frame=0;
-  #frightTimer=0;
-  #readyTimer=0;
-  #deathTimer=0;
-  #level=1;
-  #lives=3;
-  #dotEatenCount=0;
-  #fruit1Spawned=false;
-  #fruit2Spawned=false;
+  #canvas; #ctx;
+  #maze   = new Maze();
+  #score  = new ScoreManager();
+  #pac    = null;
+  #ghosts = [];
+  #popups = [];
+  #bonus  = null;
+  #state  = STATE.IDLE;
+  #frame  = 0;
+  #frightTimer   = 0;
+  #readyTimer    = 0;
+  #deathTimer    = 0;
+  #level  = 1;
+  #lives  = 3;
+  #dotEatenCount = 0;
+  #fruit1Spawned = false;
+  #fruit2Spawned = false;
+  #sirenFast     = false;   // track whether we've already called sirenFast
 
   constructor(canvasId){
     this.#canvas=document.getElementById(canvasId);
@@ -626,7 +601,7 @@ class Game {
     this.#canvas.width=CFG.COLS*CFG.TILE;
     this.#canvas.height=CFG.ROWS*CFG.TILE;
     this.#bindInput();
-    this.#maze.clone();   // pre-load grid so first draw frame never hits empty array
+    this.#maze.clone();
     document.getElementById('highscore').textContent=String(TRIBUTE.hiScore).padStart(7,'0');
     HUD.show('overlay-start');
     requestAnimationFrame(this.#loop);
@@ -634,11 +609,13 @@ class Game {
 
   #setState(s){this.#state=s;bus.emit('state:change',s);}
 
+  // ── START / INIT ────────────────────────────────────────
   startGame(){
-    HUD.hide('overlay-start');HUD.hide('overlay-gameover');
-    this.#score.reset();this.#level=1;this.#lives=3;
-    HUD.setLevel(1);HUD.setLives(3);
+    HUD.hide('overlay-start'); HUD.hide('overlay-gameover');
+    this.#score.reset(); this.#level=1; this.#lives=3;
+    HUD.setLevel(1); HUD.setLives(3);
     this.#initLevel();
+    snd.start();   // 🎵 Opening jingle on every new game
   }
 
   #initLevel(){
@@ -647,148 +624,268 @@ class Game {
     this.#pac=new Pacman(10*T+T/2,16*T+T/2);
     const spd=Math.min(CFG.GHOST_SPEED+(this.#level-1)*.08,2.2);
     this.#ghosts=GHOST_DEFS.map((def,i)=>new Ghost(def,i,spd));
-    this.#popups=[];this.#bonus=null;this.#frightTimer=0;
-    this.#dotEatenCount=0;this.#fruit1Spawned=false;this.#fruit2Spawned=false;
+    this.#popups=[]; this.#bonus=null; this.#frightTimer=0;
+    this.#dotEatenCount=0; this.#fruit1Spawned=false; this.#fruit2Spawned=false;
+    this.#sirenFast=false;
     this.#score.resetGhostMul();
     this.#setState(STATE.READY);
     this.#readyTimer=CFG.READY_FRAMES;
-    HUD.setReady(true);HUD.setActiveFruit(null);
+    HUD.setReady(true); HUD.setActiveFruit(null);
+    snd.sirenStop();    // clear any old siren before ready phase
+    snd.frightStop();
   }
 
+  // ── MAIN LOOP ───────────────────────────────────────────
   #loop=()=>{this.#update();this.#draw();requestAnimationFrame(this.#loop);};
 
   #update(){
     this.#frame++;
     switch(this.#state){
       case STATE.READY:
-        if(--this.#readyTimer<=0){this.#setState(STATE.PLAYING);HUD.setReady(false);}break;
-      case STATE.PLAYING:this.#updatePlaying();break;
+        if(--this.#readyTimer<=0){
+          this.#setState(STATE.PLAYING);
+          HUD.setReady(false);
+          snd.sirenStart();   // 🎵 Siren starts when play begins
+        }
+        break;
+      case STATE.PLAYING:
+        this.#updatePlaying();
+        break;
       case STATE.DYING:
         this.#pac.deathFrame++;
-        if(--this.#deathTimer<=0)this.#handleDeath();break;
+        if(--this.#deathTimer<=0) this.#handleDeath();
+        break;
     }
     this.#popups=this.#popups.filter(p=>{p.update();return p.alive;});
   }
 
   #updatePlaying(){
-    if(this.#frightTimer>0&&--this.#frightTimer===0)this.#ghosts.forEach(g=>g.setFrightened(false));
+    // ── Fright timer countdown ──
+    if(this.#frightTimer>0){
+      this.#frightTimer--;
+      if(this.#frightTimer===0){
+        // 🎵 Fright ends — stop warble, resume siren
+        this.#ghosts.forEach(g=>g.setFrightened(false));
+        snd.frightStop();
+        snd.sirenStart();
+      }
+    }
+
     this.#pac.update(this.#maze);
 
+    // ── Eat dot / power ──
     const eaten=this.#maze.eat(this.#pac.col,this.#pac.row);
     if(eaten==='dot'){
-      this.#score.add(CFG.SCORE.DOT);this.#dotEatenCount++;this.#checkFruitSpawn();
+      this.#score.add(CFG.SCORE.DOT);
+      this.#dotEatenCount++;
+      this.#checkFruitSpawn();
+      snd.waka();   // 🎵 Waka chomp
+
+      // 🎵 Speed up siren when fewer than 30 dots remain
+      if(!this.#sirenFast && this.#maze.dotsLeft<30 && this.#frightTimer===0){
+        this.#sirenFast=true;
+        snd.sirenFast();
+      }
     } else if(eaten==='power'){
       this.#score.add(CFG.SCORE.POWER);
       const dur=Math.max(CFG.FRIGHT_MIN,CFG.FRIGHT_BASE-(this.#level-1)*25);
-      this.#frightTimer=dur;this.#score.resetGhostMul();
+      this.#frightTimer=dur;
+      this.#score.resetGhostMul();
       this.#ghosts.forEach(g=>g.setFrightened(true));
+      snd.power();        // 🎵 Power pellet sound
+      snd.sirenStop();    // 🎵 Stop siren during fright
+      snd.frightStart();  // 🎵 Start fright warble
     }
 
+    // ── Bonus fruit update + collection ──
     if(this.#bonus?.alive){
       this.#bonus.update();
       const dist=Math.hypot(this.#bonus.x-this.#pac.x,this.#bonus.y-this.#pac.y);
       if(dist<CFG.TILE*.8){
-        const def=this.#bonus.def,pts=def.basePoints*def.mult;
+        const def=this.#bonus.def, pts=def.basePoints*def.mult;
         this.#score.add(pts);
         this.#popups.push(new ScorePopup(this.#bonus.x,this.#bonus.y,pts,def.mult>1));
-        this.#bonus.collect();HUD.setActiveFruit(null);
+        this.#bonus.collect();
+        HUD.setActiveFruit(null);
+        snd.fruit(def.id==='peach');  // 🎵 Fruit sound (peach = shimmer trill)
       }
     } else if(this.#bonus&&!this.#bonus.alive&&!this.#bonus.collected){
-      HUD.setActiveFruit(null);this.#bonus=null;
+      HUD.setActiveFruit(null); this.#bonus=null;
     }
 
+    // ── Ghost updates ──
     this.#ghosts.forEach(g=>g.update(this.#maze,this.#pac,this.#ghosts,this.#frame));
 
+    // ── Collision detection ──
     for(const ghost of this.#ghosts){
       const dist=Math.hypot(ghost.x-this.#pac.x,ghost.y-this.#pac.y);
-      if(dist>=CFG.TILE*.75)continue;
-      if(ghost.frightened){const pts=this.#score.ghostEaten();ghost.setEaten();this.#popups.push(new ScorePopup(ghost.x,ghost.y,pts));}
-      else if(!ghost.eaten&&!ghost.inHouse){this.#setState(STATE.DYING);this.#deathTimer=CFG.DEATH_FRAMES;this.#pac.deathFrame=0;HUD.setReady(false);return;}
+      if(dist>=CFG.TILE*.75) continue;
+
+      if(ghost.frightened){
+        const pts=this.#score.ghostEaten();
+        ghost.setEaten();
+        this.#popups.push(new ScorePopup(ghost.x,ghost.y,pts));
+        snd.ghost(this.#score.ghostMul);  // 🎵 Ghost eaten (pitch rises per ghost)
+        // If all ghosts eaten, restart fright sound
+        const anyFrightened=this.#ghosts.some(g=>g.frightened);
+        if(!anyFrightened){ snd.frightStop(); snd.sirenStart(); }
+      } else if(!ghost.eaten&&!ghost.inHouse){
+        // 🎵 Pac-Man hit — stop everything, start death
+        snd.sirenStop();
+        snd.frightStop();
+        this.#setState(STATE.DYING);
+        this.#deathTimer=CFG.DEATH_FRAMES;
+        this.#pac.deathFrame=0;
+        HUD.setReady(false);
+        snd.death();  // 🎵 Death fanfare
+        return;
+      }
     }
-    if(this.#maze.cleared)this.#triggerLevelClear();
+
+    if(this.#maze.cleared) this.#triggerLevelClear();
   }
 
+  // ── FRUIT SPAWN ─────────────────────────────────────────
   #checkFruitSpawn(){
-    const T=CFG.TILE,spawnX=10*T+T/2,spawnY=17*T+T/2;
-    if(!this.#fruit1Spawned&&this.#dotEatenCount>=70){this.#fruit1Spawned=true;this.#spawnFruit(spawnX,spawnY);}
-    else if(!this.#fruit2Spawned&&this.#dotEatenCount>=170){this.#fruit2Spawned=true;this.#spawnFruit(spawnX,spawnY);}
+    const T=CFG.TILE, spawnX=10*T+T/2, spawnY=17*T+T/2;
+    if(!this.#fruit1Spawned&&this.#dotEatenCount>=70){
+      this.#fruit1Spawned=true; this.#spawnFruit(spawnX,spawnY);
+    } else if(!this.#fruit2Spawned&&this.#dotEatenCount>=170){
+      this.#fruit2Spawned=true; this.#spawnFruit(spawnX,spawnY);
+    }
   }
 
-  #spawnFruit(x,y){const def=fruitForLevel(this.#level);this.#bonus=new BonusFruit(def,x,y);HUD.setActiveFruit(def);}
+  #spawnFruit(x,y){
+    const def=fruitForLevel(this.#level);
+    this.#bonus=new BonusFruit(def,x,y);
+    HUD.setActiveFruit(def);
+  }
 
-  #handleDeath(){this.#lives--;HUD.setLives(this.#lives);if(this.#lives<=0)this.#triggerGameOver();else this.#initLevel();}
+  // ── DEATH / GAME OVER / LEVEL CLEAR ────────────────────
+  #handleDeath(){
+    this.#lives--;
+    HUD.setLives(this.#lives);
+    if(this.#lives<=0){
+      this.#triggerGameOver();
+    } else {
+      this.#initLevel();
+    }
+  }
 
   #triggerLevelClear(){
-    this.#setState(STATE.LEVELCLEAR);HUD.show('overlay-levelclear');
-    setTimeout(()=>{HUD.hide('overlay-levelclear');this.#level++;HUD.setLevel(this.#level);this.#initLevel();},2400);
+    this.#setState(STATE.LEVELCLEAR);
+    snd.sirenStop();    // 🎵 Stop siren
+    snd.frightStop();
+    snd.levelClear();   // 🎵 Level clear fanfare
+    HUD.show('overlay-levelclear');
+    setTimeout(()=>{
+      HUD.hide('overlay-levelclear');
+      this.#level++;
+      HUD.setLevel(this.#level);
+      this.#initLevel();
+    }, 2400);
   }
 
   #triggerGameOver(){
-    this.#setState(STATE.GAMEOVER);HUD.setFinalScore(this.#score.score);
-    const msgs=TRIBUTE.gameoverMessages;HUD.setGameOverMsg(msgs[Math.floor(Math.random()*msgs.length)]);
+    this.#setState(STATE.GAMEOVER);
+    snd.sirenStop();   // 🎵 Ensure all sounds stopped
+    snd.frightStop();
+    HUD.setFinalScore(this.#score.score);
+    const msgs=TRIBUTE.gameoverMessages;
+    HUD.setGameOverMsg(msgs[Math.floor(Math.random()*msgs.length)]);
     HUD.show('overlay-gameover');
   }
 
+  // ── DRAW ────────────────────────────────────────────────
   #draw(){
     const ctx=this.#ctx;
-    ctx.fillStyle='#000008';ctx.fillRect(0,0,this.#canvas.width,this.#canvas.height);
+    ctx.fillStyle='#000008';
+    ctx.fillRect(0,0,this.#canvas.width,this.#canvas.height);
     this.#maze.draw(ctx,this.#frame);
 
     if(this.#state!==STATE.IDLE&&this.#state!==STATE.GAMEOVER){
       const dying=this.#state===STATE.DYING;
-      if(!dying||this.#pac.deathFrame<75)this.#pac.draw(ctx,this.#frame,dying);
+      if(!dying||this.#pac.deathFrame<75) this.#pac.draw(ctx,this.#frame,dying);
       this.#bonus?.draw(ctx,this.#frame);
       this.#ghosts.forEach(g=>g.draw(ctx,this.#frame,this.#frightTimer));
       this.#popups.forEach(p=>p.draw(ctx));
     }
 
-    // BABS watermark — soft pulse every 700 frames
+    // BABS watermark
     if(this.#state===STATE.PLAYING){
       const cycle=this.#frame%700;
       if(cycle<140){
         const alpha=Math.sin((cycle/140)*Math.PI)*.055;
-        ctx.save();ctx.globalAlpha=alpha;
-        ctx.fillStyle='#FFAB76';ctx.font='bold 18px "Press Start 2P"';
-        ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#FFAB76'; ctx.font='bold 18px "Press Start 2P"';
+        ctx.textAlign='center'; ctx.textBaseline='middle';
         ctx.fillText('B A B S',this.#canvas.width/2,this.#canvas.height/2-10);
-        ctx.font='12px "Playfair Display"';ctx.fillStyle='#FFD4B0';
+        ctx.font='12px "Playfair Display"'; ctx.fillStyle='#FFD4B0';
         ctx.fillText('Georgia Peach 🍑',this.#canvas.width/2,this.#canvas.height/2+14);
         ctx.restore();
       }
     }
   }
 
+  // ── INPUT ───────────────────────────────────────────────
   #bindInput(){
     const keyMap=new Map([
       ['ArrowLeft',[-1,0]],['a',[-1,0]],['ArrowRight',[1,0]],['d',[1,0]],
       ['ArrowUp',[0,-1]],  ['w',[0,-1]],['ArrowDown',[0,1]], ['s',[0,1]],
     ]);
-    const tryStart=()=>{if(this.#state===STATE.IDLE||this.#state===STATE.GAMEOVER)this.startGame();};
+    const tryStart=()=>{
+      if(this.#state===STATE.IDLE||this.#state===STATE.GAMEOVER) this.startGame();
+    };
     document.addEventListener('keydown',e=>{
       if(e.key==='Enter'||e.key===' '){tryStart();return;}
-      if(this.#state!==STATE.PLAYING)return;
+      // M key = mute toggle
+      if(e.key==='m'||e.key==='M'){
+        const muted=snd.toggleMute();  // 🎵 Mute toggle via M key
+        HUD.setMuteBtn(muted);
+        return;
+      }
+      if(this.#state!==STATE.PLAYING) return;
       const dir=keyMap.get(e.key);
       if(dir){const[dx,dy]=dir;this.#pac.setDir(dx,dy);e.preventDefault();}
     });
+
+    // Mute button click
+    document.getElementById('mute-btn')?.addEventListener('click',()=>{
+      const muted=snd.toggleMute();
+      HUD.setMuteBtn(muted);
+    });
+
+    // D-pad touch
     Object.entries({'dpad-up':[0,-1],'dpad-down':[0,1],'dpad-left':[-1,0],'dpad-right':[1,0]})
       .forEach(([id,[dx,dy]])=>{
-        document.getElementById(id)?.addEventListener('touchstart',e=>{e.preventDefault();tryStart();if(this.#state===STATE.PLAYING)this.#pac.setDir(dx,dy);},{passive:false});
+        document.getElementById(id)?.addEventListener('touchstart',e=>{
+          e.preventDefault(); tryStart();
+          if(this.#state===STATE.PLAYING) this.#pac.setDir(dx,dy);
+        },{passive:false});
       });
+
+    // Swipe
     let sx=0,sy=0;
     this.#canvas.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;tryStart();},{passive:true});
     this.#canvas.addEventListener('touchend',e=>{
-      if(this.#state!==STATE.PLAYING)return;
-      const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;
+      if(this.#state!==STATE.PLAYING) return;
+      const dx=e.changedTouches[0].clientX-sx, dy=e.changedTouches[0].clientY-sy;
       Math.abs(dx)>Math.abs(dy)?this.#pac.setDir(dx>0?1:-1,0):this.#pac.setDir(0,dy>0?1:-1);
     },{passive:true});
   }
+
+  // Public mute accessor for window.__babs__
+  toggleMute(){ const m=snd.toggleMute(); HUD.setMuteBtn(m); return m; }
 }
 
 // ══════════════════════════════════════════════════════════
 // SPLASH + BOOT
 // ══════════════════════════════════════════════════════════
 const splash=document.getElementById('splash');
-const dismissSplash=()=>{splash.classList.add('fade-out');setTimeout(()=>splash.classList.add('gone'),800);};
+const dismissSplash=()=>{
+  splash.classList.add('fade-out');
+  setTimeout(()=>splash.classList.add('gone'),800);
+};
 setTimeout(dismissSplash,5000);
 splash.addEventListener('click',dismissSplash,{once:true});
 document.addEventListener('keydown',dismissSplash,{once:true});
