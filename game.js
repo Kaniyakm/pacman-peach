@@ -10,6 +10,7 @@
  *   assets/sprites/fruits.png  10×2  — all 10 fruits + glow row
  *   assets/sprites/pellets.png  6×2  — dot + 5 power frames
  */
+import { snd } from './sound.js';
 
 'use strict';
 
