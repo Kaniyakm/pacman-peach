@@ -4,13 +4,7 @@
  *
  * For Barbara "Babs" Jackson  🍑
  *
- * Requires: sound.js (same folder)
- * Sprite sheets (32px cells):
- *   assets/sprites/pacman.png   8×4
- *   assets/sprites/ghosts.png   8×7
- *   assets/sprites/fruits.png  10×2
- *   assets/sprites/pellets.png  6×2
- */
+ 
 
 import { snd } from './sound.js';
 
@@ -177,30 +171,40 @@ function fbOrange(ctx, x, y) {
   ctx.restore();
 }
 
+// FIX: ctx.fillStyle='white' added — previously missing, so text inherited
+// near-black #000008 and was invisible against the black canvas background.
+// emoji property is now populated on every FRUITS entry (see § 5).
 function fbFruit(ctx, x, y, def) {
   if (def.id === 'orange') { fbOrange(ctx, x, y); return; }
   ctx.save();
   ctx.font = `${Math.round(CFG.TILE*.9)}px serif`;
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  if (def.id==='peach'){ctx.shadowColor='#FFAB76';ctx.shadowBlur=16;}
-  ctx.fillText(def.emoji||'?', x, y);
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle    = 'white';                    // ← FIX: was absent entirely
+  if (def.id === 'peach') {
+    ctx.shadowColor = '#FFAB76';
+    ctx.shadowBlur  = 16;
+  }
+  ctx.fillText(def.emoji || '?', x, y);
   ctx.restore();
 }
 
 // ══════════════════════════════════════════════════════════
 // § 5  FRUITS
+// FIX: emoji property added to every entry.  fbFruit was calling
+// def.emoji||'?' — without the property every fruit rendered as '?'.
 // ══════════════════════════════════════════════════════════
 const FRUITS = Object.freeze([
-  { id:'cherry',     name:'Cherry',     basePoints:100,  mult:1, minLevel:1 },
-  { id:'strawberry', name:'Strawberry', basePoints:300,  mult:1, minLevel:2 },
-  { id:'orange',     name:'Orange',     basePoints:500,  mult:1, minLevel:3 },
-  { id:'apple',      name:'Apple',      basePoints:700,  mult:1, minLevel:4 },
-  { id:'melon',      name:'Melon',      basePoints:1000, mult:1, minLevel:5 },
-  { id:'grapes',     name:'Grapes',     basePoints:2000, mult:1, minLevel:6 },
-  { id:'watermelon', name:'Watermelon', basePoints:3000, mult:1, minLevel:7 },
-  { id:'bell',       name:'Bell',       basePoints:3000, mult:1, minLevel:8 },
-  { id:'key',        name:'Key',        basePoints:5000, mult:1, minLevel:9 },
-  { id:'peach',      name:'Peach',      basePoints:500,  mult:3, minLevel:1 },
+  { id:'cherry',     emoji:'🍒', name:'Cherry',     basePoints:100,  mult:1, minLevel:1 },
+  { id:'strawberry', emoji:'🍓', name:'Strawberry', basePoints:300,  mult:1, minLevel:2 },
+  { id:'orange',     emoji:'🍊', name:'Orange',     basePoints:500,  mult:1, minLevel:3 },
+  { id:'apple',      emoji:'🍎', name:'Apple',      basePoints:700,  mult:1, minLevel:4 },
+  { id:'melon',      emoji:'🍈', name:'Melon',      basePoints:1000, mult:1, minLevel:5 },
+  { id:'grapes',     emoji:'🍇', name:'Grapes',     basePoints:2000, mult:1, minLevel:6 },
+  { id:'watermelon', emoji:'🍉', name:'Watermelon', basePoints:3000, mult:1, minLevel:7 },
+  { id:'bell',       emoji:'🔔', name:'Bell',       basePoints:3000, mult:1, minLevel:8 },
+  { id:'key',        emoji:'🗝️', name:'Key',        basePoints:5000, mult:1, minLevel:9 },
+  { id:'peach',      emoji:'🍑', name:'Peach',      basePoints:500,  mult:3, minLevel:1 },
 ]);
 
 function fruitForLevel(level) {
@@ -446,6 +450,20 @@ class Pacman extends Entity {
 
 // ══════════════════════════════════════════════════════════
 // § 14  GHOST
+//
+// FIX 1 — exit position:
+//   Old code placed ghosts at row 9 (col 10) then set dy=-1.
+//   map[8][10] = WALL, so the very first move upward was always blocked.
+//   Ghosts oscillated in the pen but never escaped.
+//   Fix: on release, teleport to row 7, col 10 — the open corridor directly
+//   above the ghost house. This matches how the original arcade handles the
+//   moment a ghost passes through the door.
+//
+// FIX 2 — scatter / chase mode:
+//   update() now accepts a `scatter` boolean forwarded from the Game's
+//   phase timer.  #chooseDir() uses each ghost's home corner as its target
+//   during scatter, and the normal chase AI during chase.
+//   GHOST_DEFS now includes scatterTarget coordinates.
 // ══════════════════════════════════════════════════════════
 const GhostAI={
   blinky:(g,pac)=>({x:pac.x,y:pac.y}),
@@ -456,21 +474,29 @@ const GhostAI={
 const AI_FNS=[GhostAI.blinky,GhostAI.pinky,GhostAI.inky,GhostAI.clyde];
 
 const GHOST_DEFS=Object.freeze([
-  {name:'BLINKY',color:'#FF0000',startCol:10,startRow:9},
-  {name:'PINKY', color:'#FFB8FF',startCol:9, startRow:10},
-  {name:'INKY',  color:'#00FFFF',startCol:10,startRow:10},
-  {name:'CLYDE', color:'#FFB852',startCol:11,startRow:10},
+  {name:'BLINKY',color:'#FF0000',startCol:10,startRow:9,
+   scatterTarget:{x:CFG.COLS*CFG.TILE, y:0}},
+  {name:'PINKY', color:'#FFB8FF',startCol:9, startRow:10,
+   scatterTarget:{x:0,                 y:0}},
+  {name:'INKY',  color:'#00FFFF',startCol:10,startRow:10,
+   scatterTarget:{x:CFG.COLS*CFG.TILE, y:CFG.ROWS*CFG.TILE}},
+  {name:'CLYDE', color:'#FFB852',startCol:11,startRow:10,
+   scatterTarget:{x:0,                 y:CFG.ROWS*CFG.TILE}},
 ]);
 
 class Ghost extends Entity {
   #frightened=false; #eaten=false; #inHouse=true; #leaveTimer=0; #ai; #idx;
+  #scatterTarget;
   color; name;
 
-  constructor({name,color,startCol,startRow},idx,speed){
+  constructor({name,color,startCol,startRow,scatterTarget},idx,speed){
     const T=CFG.TILE;
     super(startCol*T+T/2,startRow*T+T/2,speed);
     this.name=name; this.color=color; this.#idx=idx;
-    this.#ai=AI_FNS[idx]; this.#leaveTimer=idx*90; this.dy=-1;
+    this.#ai=AI_FNS[idx];
+    this.#scatterTarget=scatterTarget;
+    this.#leaveTimer=idx*90;
+    this.dy=-1;
   }
 
   get frightened(){return this.#frightened;}
@@ -482,35 +508,80 @@ class Ghost extends Entity {
 
   resetToHouse(){
     this.#eaten=false; this.#inHouse=true; this.#leaveTimer=60;
-    this.x=CFG.TILE*10+CFG.TILE/2; this.y=CFG.TILE*9+CFG.TILE/2;
+    // Reset to centre of pen
+    this.x=CFG.TILE*10+CFG.TILE/2;
+    this.y=CFG.TILE*10+CFG.TILE/2;
+    this.dx=0; this.dy=0;
   }
 
-  update(maze,pac,all,frame){
+  // scatter=true  → target home corner  (Scatter phase)
+  // scatter=false → run chase AI        (Chase phase)
+  update(maze, pac, all, frame, scatter=false){
     const T=CFG.TILE;
     const spd=this.#eaten?this.speed*2:this.#frightened?this.speed*.5:this.speed;
+
     if(this.#inHouse){
       this.#leaveTimer--;
-      this.y+=Math.sin(frame*.12+this.#idx*1.3)*.35;
-      if(this.#leaveTimer<=0){this.#inHouse=false;this.x=T*10+T/2;this.y=T*9+T/2;this.dx=0;this.dy=-1;}
+      this.y+=Math.sin(frame*.12+this.#idx*1.3)*.35;   // bob while waiting
+      if(this.#leaveTimer<=0){
+        this.#inHouse=false;
+        // FIX: row 7 col 10 is an open (EMPTY=0) tile in the corridor above
+        // the ghost house. Previous row 9 → row 8 path hits map[8][10]=WALL.
+        this.x=T*10+T/2;
+        this.y=T*7+T/2;
+        this.dx=(Math.random()<.5)?-1:1;  // spread left/right on exit
+        this.dy=0;
+      }
       return;
     }
+
     if(this.#eaten){
-      const hx=T*10+T/2,hy=T*9+T/2;
+      const hx=T*10+T/2, hy=T*10+T/2;
       if(Math.hypot(this.x-hx,this.y-hy)<spd+1){this.resetToHouse();return;}
     }
+
     const aligned=Math.abs(this.x-this.tileX)<spd+.5&&Math.abs(this.y-this.tileY)<spd+.5;
-    if(aligned){this.x=this.tileX;this.y=this.tileY;this.#chooseDir(maze,pac,all);}
-    if(!this._hitsWall(maze,this.x+this.dx*spd,this.y+this.dy*spd)){this.x+=this.dx*spd;this.y+=this.dy*spd;}
+    if(aligned){
+      this.x=this.tileX; this.y=this.tileY;
+      this.#chooseDir(maze,pac,all,scatter);
+    }
+    if(!this._hitsWall(maze,this.x+this.dx*spd,this.y+this.dy*spd)){
+      this.x+=this.dx*spd; this.y+=this.dy*spd;
+    } else {
+      // Recover from mid-tile block (e.g. right after exiting house)
+      this.#chooseDir(maze,pac,all,scatter);
+    }
     this._wrapX();
   }
 
-  #chooseDir(maze,pac,all){
-    const T=CFG.TILE,DIRS=[{dx:1,dy:0},{dx:-1,dy:0},{dx:0,dy:1},{dx:0,dy:-1}];
-    const valid=DIRS.filter(({dx,dy})=>!(dx===-this.dx&&dy===-this.dy)&&!this._hitsWall(maze,this.x+dx*T,this.y+dy*T));
-    if(!valid.length){const rev=DIRS.find(d=>d.dx===-this.dx&&d.dy===-this.dy);if(rev){this.dx=rev.dx;this.dy=rev.dy;}return;}
-    if(this.#frightened){const p=valid[Math.floor(Math.random()*valid.length)];this.dx=p.dx;this.dy=p.dy;return;}
-    const target=this.#eaten?{x:CFG.TILE*10+T/2,y:CFG.TILE*9+T/2}:this.#ai(this,pac,all);
-    const best=valid.reduce((acc,d)=>{const dist=Math.hypot(this.x+d.dx*T-target.x,this.y+d.dy*T-target.y);return dist<acc.dist?{...d,dist}:acc;},{dist:Infinity});
+  #chooseDir(maze,pac,all,scatter=false){
+    const T=CFG.TILE;
+    const DIRS=[{dx:1,dy:0},{dx:-1,dy:0},{dx:0,dy:1},{dx:0,dy:-1}];
+    const valid=DIRS.filter(({dx,dy})=>
+      !(dx===-this.dx&&dy===-this.dy)&&
+      !this._hitsWall(maze,this.x+dx*T,this.y+dy*T)
+    );
+    if(!valid.length){
+      const rev=DIRS.find(d=>d.dx===-this.dx&&d.dy===-this.dy);
+      if(rev){this.dx=rev.dx;this.dy=rev.dy;}
+      return;
+    }
+    if(this.#frightened){
+      const p=valid[Math.floor(Math.random()*valid.length)];
+      this.dx=p.dx;this.dy=p.dy;
+      return;
+    }
+    // eaten → head back to house; scatter → home corner; chase → AI target
+    const target=this.#eaten
+      ? {x:CFG.TILE*10+CFG.TILE/2, y:CFG.TILE*10+CFG.TILE/2}
+      : scatter
+        ? this.#scatterTarget
+        : this.#ai(this,pac,all);
+
+    const best=valid.reduce((acc,d)=>{
+      const dist=Math.hypot(this.x+d.dx*T-target.x,this.y+d.dy*T-target.y);
+      return dist<acc.dist?{...d,dist}:acc;
+    },{dist:Infinity});
     if(best.dist<Infinity){this.dx=best.dx;this.dy=best.dy;}
   }
 
@@ -562,10 +633,8 @@ const HUD={
       document.getElementById('active-fruit-pts').textContent='';
       return;
     }
-    const iconMap={orange:'🟠'};
-    const icon=iconMap[def.id]||def.emoji||def.name[0];
     const pts=def.basePoints*def.mult;
-    document.getElementById('active-fruit-icon').textContent=icon;
+    document.getElementById('active-fruit-icon').textContent=def.emoji||def.name[0];
     document.getElementById('active-fruit-name').textContent=def.name+(def.mult>1?` ×${def.mult}!`:'');
     document.getElementById('active-fruit-pts').textContent=`${pts} PTS`;
     document.getElementById('active-fruit-icon').style.color=def.id==='peach'?'#FFAB76':'';
@@ -573,7 +642,33 @@ const HUD={
 };
 
 // ══════════════════════════════════════════════════════════
-// § 16  GAME — state machine
+// § 16  SCATTER / CHASE SCHEDULE
+//
+// Classic Pac-Man alternates scatter and chase in a fixed phase sequence.
+// Durations in frames (≈60 fps).
+//   Level 1:  S7 C20 S7 C20 S5 C20 S5 C∞
+//   Level 2+: shorter scatter windows
+// ══════════════════════════════════════════════════════════
+function buildModeSchedule(level){
+  const s7=420, s5=300, s1=60, c20=1200, cInf=Number.MAX_SAFE_INTEGER;
+  if(level===1){
+    return [
+      {scatter:true, dur:s7},{scatter:false,dur:c20},
+      {scatter:true, dur:s7},{scatter:false,dur:c20},
+      {scatter:true, dur:s5},{scatter:false,dur:c20},
+      {scatter:true, dur:s5},{scatter:false,dur:cInf},
+    ];
+  }
+  return [
+    {scatter:true, dur:s5},{scatter:false,dur:c20},
+    {scatter:true, dur:s5},{scatter:false,dur:c20},
+    {scatter:true, dur:s5},{scatter:false,dur:c20},
+    {scatter:true, dur:s1},{scatter:false,dur:cInf},
+  ];
+}
+
+// ══════════════════════════════════════════════════════════
+// § 17  GAME — state machine
 // ══════════════════════════════════════════════════════════
 class Game {
   #canvas; #ctx;
@@ -593,7 +688,13 @@ class Game {
   #dotEatenCount = 0;
   #fruit1Spawned = false;
   #fruit2Spawned = false;
-  #sirenFast     = false;   // track whether we've already called sirenFast
+  #sirenFast     = false;
+
+  // Scatter/chase mode
+  #modeSchedule = [];
+  #modePhase    = 0;
+  #modeTimer    = 0;
+  #scatterMode  = true;
 
   constructor(canvasId){
     this.#canvas=document.getElementById(canvasId);
@@ -615,7 +716,7 @@ class Game {
     this.#score.reset(); this.#level=1; this.#lives=3;
     HUD.setLevel(1); HUD.setLives(3);
     this.#initLevel();
-    snd.start();   // 🎵 Opening jingle on every new game
+    snd.start();
   }
 
   #initLevel(){
@@ -628,10 +729,17 @@ class Game {
     this.#dotEatenCount=0; this.#fruit1Spawned=false; this.#fruit2Spawned=false;
     this.#sirenFast=false;
     this.#score.resetGhostMul();
+
+    // Build and start scatter/chase schedule for this level
+    this.#modeSchedule=buildModeSchedule(this.#level);
+    this.#modePhase=0;
+    this.#scatterMode=this.#modeSchedule[0].scatter;
+    this.#modeTimer=this.#modeSchedule[0].dur;
+
     this.#setState(STATE.READY);
     this.#readyTimer=CFG.READY_FRAMES;
     HUD.setReady(true); HUD.setActiveFruit(null);
-    snd.sirenStop();    // clear any old siren before ready phase
+    snd.sirenStop();
     snd.frightStop();
   }
 
@@ -645,7 +753,7 @@ class Game {
         if(--this.#readyTimer<=0){
           this.#setState(STATE.PLAYING);
           HUD.setReady(false);
-          snd.sirenStart();   // 🎵 Siren starts when play begins
+          snd.sirenStart();
         }
         break;
       case STATE.PLAYING:
@@ -659,12 +767,30 @@ class Game {
     this.#popups=this.#popups.filter(p=>{p.update();return p.alive;});
   }
 
+  // ── SCATTER / CHASE PHASE TIMER ─────────────────────────
+  #tickModeTimer(){
+    if(this.#frightTimer>0) return;   // pause cycle while frightened
+    if(--this.#modeTimer<=0){
+      const next=this.#modePhase+1;
+      if(next<this.#modeSchedule.length){
+        this.#modePhase=next;
+        const ph=this.#modeSchedule[next];
+        this.#scatterMode=ph.scatter;
+        this.#modeTimer=ph.dur;
+      } else {
+        this.#scatterMode=false;
+        this.#modeTimer=Number.MAX_SAFE_INTEGER;
+      }
+    }
+  }
+
   #updatePlaying(){
-    // ── Fright timer countdown ──
+    this.#tickModeTimer();
+
+    // Fright timer
     if(this.#frightTimer>0){
       this.#frightTimer--;
       if(this.#frightTimer===0){
-        // 🎵 Fright ends — stop warble, resume siren
         this.#ghosts.forEach(g=>g.setFrightened(false));
         snd.frightStop();
         snd.sirenStart();
@@ -673,16 +799,14 @@ class Game {
 
     this.#pac.update(this.#maze);
 
-    // ── Eat dot / power ──
+    // Eat dot / power pellet
     const eaten=this.#maze.eat(this.#pac.col,this.#pac.row);
     if(eaten==='dot'){
       this.#score.add(CFG.SCORE.DOT);
       this.#dotEatenCount++;
       this.#checkFruitSpawn();
-      snd.waka();   // 🎵 Waka chomp
-
-      // 🎵 Speed up siren when fewer than 30 dots remain
-      if(!this.#sirenFast && this.#maze.dotsLeft<30 && this.#frightTimer===0){
+      snd.waka();
+      if(!this.#sirenFast&&this.#maze.dotsLeft<30&&this.#frightTimer===0){
         this.#sirenFast=true;
         snd.sirenFast();
       }
@@ -692,12 +816,12 @@ class Game {
       this.#frightTimer=dur;
       this.#score.resetGhostMul();
       this.#ghosts.forEach(g=>g.setFrightened(true));
-      snd.power();        // 🎵 Power pellet sound
-      snd.sirenStop();    // 🎵 Stop siren during fright
-      snd.frightStart();  // 🎵 Start fright warble
+      snd.power();
+      snd.sirenStop();
+      snd.frightStart();
     }
 
-    // ── Bonus fruit update + collection ──
+    // Bonus fruit
     if(this.#bonus?.alive){
       this.#bonus.update();
       const dist=Math.hypot(this.#bonus.x-this.#pac.x,this.#bonus.y-this.#pac.y);
@@ -707,16 +831,18 @@ class Game {
         this.#popups.push(new ScorePopup(this.#bonus.x,this.#bonus.y,pts,def.mult>1));
         this.#bonus.collect();
         HUD.setActiveFruit(null);
-        snd.fruit(def.id==='peach');  // 🎵 Fruit sound (peach = shimmer trill)
+        snd.fruit(def.id==='peach');
       }
     } else if(this.#bonus&&!this.#bonus.alive&&!this.#bonus.collected){
       HUD.setActiveFruit(null); this.#bonus=null;
     }
 
-    // ── Ghost updates ──
-    this.#ghosts.forEach(g=>g.update(this.#maze,this.#pac,this.#ghosts,this.#frame));
+    // Ghost updates — pass current scatter mode flag
+    this.#ghosts.forEach(g=>
+      g.update(this.#maze,this.#pac,this.#ghosts,this.#frame,this.#scatterMode)
+    );
 
-    // ── Collision detection ──
+    // Collision
     for(const ghost of this.#ghosts){
       const dist=Math.hypot(ghost.x-this.#pac.x,ghost.y-this.#pac.y);
       if(dist>=CFG.TILE*.75) continue;
@@ -725,19 +851,17 @@ class Game {
         const pts=this.#score.ghostEaten();
         ghost.setEaten();
         this.#popups.push(new ScorePopup(ghost.x,ghost.y,pts));
-        snd.ghost(this.#score.ghostMul);  // 🎵 Ghost eaten (pitch rises per ghost)
-        // If all ghosts eaten, restart fright sound
+        snd.ghost(this.#score.ghostMul);
         const anyFrightened=this.#ghosts.some(g=>g.frightened);
-        if(!anyFrightened){ snd.frightStop(); snd.sirenStart(); }
+        if(!anyFrightened){snd.frightStop();snd.sirenStart();}
       } else if(!ghost.eaten&&!ghost.inHouse){
-        // 🎵 Pac-Man hit — stop everything, start death
         snd.sirenStop();
         snd.frightStop();
         this.#setState(STATE.DYING);
         this.#deathTimer=CFG.DEATH_FRAMES;
         this.#pac.deathFrame=0;
         HUD.setReady(false);
-        snd.death();  // 🎵 Death fanfare
+        snd.death();
         return;
       }
     }
@@ -746,8 +870,9 @@ class Game {
   }
 
   // ── FRUIT SPAWN ─────────────────────────────────────────
+  // Spawn position: col 10, row 16 = EMPTY (0) in BASE_MAP.
   #checkFruitSpawn(){
-    const T=CFG.TILE, spawnX=10*T+T/2, spawnY=17*T+T/2;
+    const T=CFG.TILE, spawnX=10*T+T/2, spawnY=16*T+T/2;
     if(!this.#fruit1Spawned&&this.#dotEatenCount>=70){
       this.#fruit1Spawned=true; this.#spawnFruit(spawnX,spawnY);
     } else if(!this.#fruit2Spawned&&this.#dotEatenCount>=170){
@@ -774,9 +899,9 @@ class Game {
 
   #triggerLevelClear(){
     this.#setState(STATE.LEVELCLEAR);
-    snd.sirenStop();    // 🎵 Stop siren
+    snd.sirenStop();
     snd.frightStop();
-    snd.levelClear();   // 🎵 Level clear fanfare
+    snd.levelClear();
     HUD.show('overlay-levelclear');
     setTimeout(()=>{
       HUD.hide('overlay-levelclear');
@@ -788,7 +913,7 @@ class Game {
 
   #triggerGameOver(){
     this.#setState(STATE.GAMEOVER);
-    snd.sirenStop();   // 🎵 Ensure all sounds stopped
+    snd.sirenStop();
     snd.frightStop();
     HUD.setFinalScore(this.#score.score);
     const msgs=TRIBUTE.gameoverMessages;
@@ -838,9 +963,8 @@ class Game {
     };
     document.addEventListener('keydown',e=>{
       if(e.key==='Enter'||e.key===' '){tryStart();return;}
-      // M key = mute toggle
       if(e.key==='m'||e.key==='M'){
-        const muted=snd.toggleMute();  // 🎵 Mute toggle via M key
+        const muted=snd.toggleMute();
         HUD.setMuteBtn(muted);
         return;
       }
@@ -849,13 +973,11 @@ class Game {
       if(dir){const[dx,dy]=dir;this.#pac.setDir(dx,dy);e.preventDefault();}
     });
 
-    // Mute button click
     document.getElementById('mute-btn')?.addEventListener('click',()=>{
       const muted=snd.toggleMute();
       HUD.setMuteBtn(muted);
     });
 
-    // D-pad touch
     Object.entries({'dpad-up':[0,-1],'dpad-down':[0,1],'dpad-left':[-1,0],'dpad-right':[1,0]})
       .forEach(([id,[dx,dy]])=>{
         document.getElementById(id)?.addEventListener('touchstart',e=>{
@@ -864,7 +986,6 @@ class Game {
         },{passive:false});
       });
 
-    // Swipe
     let sx=0,sy=0;
     this.#canvas.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;tryStart();},{passive:true});
     this.#canvas.addEventListener('touchend',e=>{
@@ -874,7 +995,6 @@ class Game {
     },{passive:true});
   }
 
-  // Public mute accessor for window.__babs__
   toggleMute(){ const m=snd.toggleMute(); HUD.setMuteBtn(m); return m; }
 }
 
