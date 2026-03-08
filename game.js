@@ -1,8 +1,5 @@
 /**
  * BABS' MS. PAC-MAN \u2014 Georgia Peach Edition
- * game.js  \u2014  full game logic + sprite rendering + sound
- * For Barbara "Babs" Jackson  \u{1F351}
- * Ms. Pac-Man theme with level timer, auto-advance, and arcade sounds.
  */
 
 // ES modules are implicitly strict \u2014 no 'use strict' needed or allowed after import.
@@ -539,7 +536,7 @@ class Ghost extends Entity {
       this.#leaveTimer=0;
     } else {
       // Pinky=0 frames, Inky=60 frames (1s), Clyde=120 frames (2s)
-      this.#leaveTimer=[0,0,60,120][idx];
+      this.#leaveTimer=[0,60,120,180][idx]; // staggered: Pinky 1s, Inky 2s, Clyde 3s
       this.dy=-1;
     }
   }
@@ -550,6 +547,9 @@ class Ghost extends Entity {
 
   setFrightened(on){if(!this.#eaten)this.#frightened=on;}
   setEaten(){this.#eaten=true;this.#frightened=false;}
+
+  // Classic Pac-Man: reverse on scatter<->chase switch so behaviour is immediately visible
+  reverseDir(){ if(!this.#inHouse&&!this.#eaten){ this.dx=-this.dx; this.dy=-this.dy; } }
 
   resetToHouse(){
     this.#eaten=false; this.#inHouse=true; this.#leaveTimer=60;
@@ -581,7 +581,10 @@ class Ghost extends Entity {
     }
 
     if(this.#eaten){
-      const hx=T*10+T/2, hy=T*10+T/2;
+      // Target the open corridor ABOVE the ghost house (row 7, col 10).
+      // The house interior (row 10) is blocked by WALL tiles at row 8.
+      // Once the ghost reaches the entrance, resetToHouse() teleports it in.
+      const hx=T*10+T/2, hy=T*7+T/2;
       if(Math.hypot(this.x-hx,this.y-hy)<spd+1){this.resetToHouse();return;}
     }
 
@@ -618,7 +621,7 @@ class Ghost extends Entity {
     }
     // eaten ? head back to house; scatter ? home corner; chase ? AI target
     const target=this.#eaten
-      ? {x:CFG.TILE*10+CFG.TILE/2, y:CFG.TILE*10+CFG.TILE/2}
+      ? {x:CFG.TILE*10+CFG.TILE/2, y:CFG.TILE*7+CFG.TILE/2}  // entrance, not interior
       : scatter
         ? this.#scatterTarget
         : this.#ai(this,pac,all);
@@ -846,8 +849,11 @@ class Game {
       if(next<this.#modeSchedule.length){
         this.#modePhase=next;
         const ph=this.#modeSchedule[next];
+        const changed=(ph.scatter!==this.#scatterMode);
         this.#scatterMode=ph.scatter;
         this.#modeTimer=ph.dur;
+        // Classic behaviour: all free ghosts immediately reverse on mode switch
+        if(changed) this.#ghosts.forEach(g=>g.reverseDir());
       } else {
         this.#scatterMode=false;
         this.#modeTimer=Number.MAX_SAFE_INTEGER;
