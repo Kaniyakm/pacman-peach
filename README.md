@@ -20,7 +20,6 @@ Her legendary high score of **3,333,330** (set in 1987) is permanently displayed
 ### Special Features
 - 🍑 **Georgia Peach** gives **TRIPLE points** — Babs' favourite fruit
 - All 10 classic Pac-Man fruits: Cherry · Strawberry · Orange · Apple · Melon · Grapes · Watermelon · Bell · Key · Peach
-- **BABS' unbeatable high score: 3,333,330** — hardcoded, read-only, permanent
 - Dedication splash screen on every load
 - Retro CRT scanline aesthetic with Georgia night sky
 - Fully responsive — keyboard + mobile swipe + D-pad
@@ -31,14 +30,14 @@ Her legendary high score of **3,333,330** (set in 1987) is permanently displayed
 
 ```
 babs-pacman/
-├── index.html              ← HTML structure + links to CSS & JS
-├── style.css               ← all CSS (peach theme, layout, animations)
-├── game.js                 ← all JavaScript (ES6+ game engine)
-├── README.md               ← this file
+├── index.html              
+├── style.css               
+├── game.js               
+├── README.md              
 ├── .gitignore
 └── .github/
     └── workflows/
-        └── deploy.yml      ← auto-deploy to GitHub Pages on push
+        └── deploy.yml      
 ```
 
 ---
@@ -92,7 +91,7 @@ python3 -m http.server 8080
 npx serve .
 ```
 
-> ⚠️ Do NOT open index.html directly — ES6 modules require an HTTP server.
+
 
 ---
 
