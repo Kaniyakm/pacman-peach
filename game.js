@@ -1,5 +1,8 @@
 /**
  * BABS' MS. PAC-MAN \u2014 Georgia Peach Edition
+ * game.js  \u2014  full game logic + sprite rendering + sound
+ * For Barbara "Babs" Jackson  \u{1F351}
+ * 
  */
 
 // ES modules are implicitly strict \u2014 no 'use strict' needed or allowed after import.
@@ -71,6 +74,8 @@ class SpriteSheet {
   blit(ctx, col, row, dx, dy, scale, flipX = false) {
     if (!this.#ready) return false;
     const C   = CFG.CELL;
+    // Bounds check: if the sprite sheet doesn't have this row/col, use canvas fallback
+    if (row * C >= this.#img.naturalHeight || col * C >= this.#img.naturalWidth) return false;
     const sc  = scale ?? (CFG.TILE / C);
     const dim = C * sc;
     ctx.save();
@@ -92,6 +97,20 @@ const SPRITES = {
   fruits:  new SpriteSheet('assets/sprites/fruits.png'),
   pellets: new SpriteSheet('assets/sprites/pellets.png'),
 };
+
+// Ms. Pac-Man directional SVG sprites (user-supplied)
+const PAC_SVGS = {};
+for (const dir of ['right','left','up','down']) {
+  const img = new Image();
+  img.src = `assets/sprites/ms-pacman-${dir}.svg`;
+  PAC_SVGS[dir] = img;
+}
+function pacSvgKey(dx, dy) {
+  if (dx < 0) return 'left';
+  if (dy < 0) return 'up';
+  if (dy > 0) return 'down';
+  return 'right'; // default / stationary
+}
 
 function pacRow(dx, dy) {
   if (dy < 0) return 1;
@@ -199,18 +218,35 @@ function fbOrange(ctx, x, y) {
 // FIX: ctx.fillStyle='white' added \u2014 previously missing, so text inherited
 // near-black #000008 and was invisible against the black canvas background.
 // emoji property is now populated on every FRUITS entry (see ? 5).
+// Fruit color map for canvas fallback (guaranteed visible)
+const FRUIT_COLORS = {
+  cherry:'#DD1111', strawberry:'#EE2244', orange:'#FF8800',
+  apple:'#CC2200', melon:'#44BB22', grapes:'#8833DD',
+  watermelon:'#228822', bell:'#FFDD00', key:'#AAAAAA', peach:'#FFAB76'
+};
 function fbFruit(ctx, x, y, def) {
   if (def.id === 'orange') { fbOrange(ctx, x, y); return; }
+  const r = CFG.TILE * 0.42;
+  const col = FRUIT_COLORS[def.id] || '#FFFF00';
   ctx.save();
-  ctx.font = `${Math.round(CFG.TILE*.9)}px serif`;
-  ctx.textAlign    = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle    = 'white';                    // ? FIX: was absent entirely
+  // Glowing coloured circle -- always visible
+  ctx.shadowColor = col; ctx.shadowBlur = 14;
+  const g = ctx.createRadialGradient(x-r*.25,y-r*.25,0,x,y,r);
+  g.addColorStop(0, '#FFFFFF88'); g.addColorStop(0.4, col); g.addColorStop(1, col+'AA');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+  // White letter initial (always readable)
+  ctx.shadowBlur = 0; ctx.fillStyle = '#FFFFFF';
+  ctx.font = `bold ${Math.round(CFG.TILE*0.52)}px monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText((def.name||'?')[0].toUpperCase(), x, y+1);
+  // Special peach sparkle ring
   if (def.id === 'peach') {
-    ctx.shadowColor = '#FFAB76';
-    ctx.shadowBlur  = 16;
+    ctx.strokeStyle = '#FFD700'; ctx.lineWidth = 1.5;
+    ctx.setLineDash([2,2]);
+    ctx.beginPath(); ctx.arc(x, y, r+3, 0, Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]);
   }
-  ctx.fillText(def.emoji || '?', x, y);
   ctx.restore();
 }
 
@@ -466,17 +502,23 @@ class Pacman extends Entity {
     const {x,y}=this;
     const r=CFG.TILE*0.47;
     if(dying){
-      const col=Math.min(7,Math.floor(this.deathFrame/(CFG.DEATH_FRAMES/8)));
-      const drawn=SPRITES.pacman.blit(ctx,col,3,x,y);
-      if(!drawn)fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,true,this.deathFrame);
+      fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,true,this.deathFrame);
       return;
     }
-    const row=pacRow(this.dx,this.dy);
-    const col=pacCol(globalFrame);
-    const flipX=this.dx<0;
-    const drawn=SPRITES.pacman.blit(ctx,col,row,x,y,undefined,flipX);
-    if(!drawn) fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,false,0);
-    else       fbMsPacBow(ctx,x,y,r); // bow + beauty mark over sprite too
+    // Try SVG sprite first -- includes bow, beauty mark, correct direction
+    const svgImg = PAC_SVGS[pacSvgKey(this.dx,this.dy)];
+    const svgReady = svgImg && svgImg.complete && svgImg.naturalWidth > 0;
+    if(svgReady){
+      // Animate mouth: alternate SVG (open) with a tiny scale-down (closed feel)
+      const mouthOpen = Math.floor(globalFrame/5)%2===0;
+      const size = CFG.TILE * (mouthOpen ? 1.15 : 1.05);
+      ctx.save();
+      ctx.drawImage(svgImg, x-size/2, y-size/2, size, size);
+      ctx.restore();
+    } else {
+      // Canvas fallback -- includes bow via fbMsPacBow inside fbPacman
+      fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,false,0);
+    }
   }
 }
 
