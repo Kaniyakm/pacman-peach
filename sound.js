@@ -1,140 +1,182 @@
 /**
- * sound.js \u2014 Ms. Pac-Man "Georgia Peach Edition"
- * Classic arcade sounds synthesised via Web Audio API.
- * No external audio files required.
- * Approximates the original Namco WSG chip sound palette.
+ * sound.js -- Ms. Pac-Man "Georgia Peach Edition"
+ *
+ * All sounds synthesised with Web Audio API. No audio files required.
+ * Approximates the Namco WSG (Waveform Sound Generator) chip palette.
+ *
+ * LOOP DESIGN -- zero click/glitch approach:
+ *   One persistent OscillatorNode per continuous sound (siren, fright).
+ *   Frequency is stepped via AudioParam.setValueAtTime() on the AudioContext
+ *   clock -- no node creation/destruction mid-play, which is what causes pops.
+ *   requestAnimationFrame drives the scheduler; it pre-fills a 300ms lookahead
+ *   buffer so there are never gaps, even under heavy CPU load.
  */
 
-'use strict';
-
 class ArcadeSound {
-  #actx   = null;   // AudioContext
-  #master = null;   // master GainNode
+
+  // Core context
+  #ctx    = null;   // AudioContext
+  #master = null;   // master GainNode  (volume + mute)
   #muted  = false;
 
-  // continuous loop handles
-  #sirenTick  = null;
-  #sirenStep  = 0;
-  #frightTick = null;
-  #frightStep = 0;
+  // Siren loop (sawtooth, continuous)
+  #sirOsc    = null;
+  #sirGain   = null;
+  #sirRaf    = null;
+  #sirFast   = false;
+  #sirStep   = 0;
+  #sirNext   = 0;
 
-  // waka alternation
-  #wakaAlt = false;
+  // Fright loop (square, continuous)
+  #frtOsc    = null;
+  #frtGain   = null;
+  #frtRaf    = null;
+  #frtStep   = 0;
+  #frtNext   = 0;
 
-  // ------------------------------------------------------------------ boot --
+  // Waka alternation flag
+  #wakaFlip  = false;
+
+  // Frequency tables for loops
+  static #SIR_SLOW = [200,212,224,236,248,258,248,236,224,212];
+  static #SIR_FAST = [262,278,294,310,326,310,294,278];
+  static #FRT_TBLE = [138,156,143,162,148,168,146,160];
+
+  // ------------------------------------------- AudioContext boot
   #boot() {
-    if (this.#actx) { this.#actx.resume(); return; }
-    this.#actx   = new (window.AudioContext || window.webkitAudioContext)();
-    this.#master = this.#actx.createGain();
-    this.#master.gain.value = 0.32;
-    this.#master.connect(this.#actx.destination);
+    if (this.#ctx) {
+      // Resume if browser suspended it (autoplay policy)
+      if (this.#ctx.state === 'suspended') this.#ctx.resume();
+      return;
+    }
+    this.#ctx    = new (window.AudioContext || window.webkitAudioContext)();
+    this.#master = this.#ctx.createGain();
+    this.#master.gain.value = 0.30;
+    this.#master.connect(this.#ctx.destination);
   }
 
-  // Play one oscillator envelope starting at optional absolute time `at`
-  #osc(freq, dur, vol = 0.25, type = 'square', at = null) {
-    if (this.#muted || !this.#actx) return;
-    const t   = at ?? this.#actx.currentTime;
-    const osc = this.#actx.createOscillator();
-    const g   = this.#actx.createGain();
-    osc.type  = type;
+  // ------------------------------------------- Primitive: one-shot osc
+  //  freq  -- Hz
+  //  dur   -- seconds
+  //  vol   -- peak gain (0..1)
+  //  shape -- OscillatorType
+  //  at    -- AudioContext time to start (defaults to now)
+  #note(freq, dur, vol = 0.22, shape = 'square', at = null) {
+    if (this.#muted || !this.#ctx) return;
+    const t   = at ?? this.#ctx.currentTime;
+    const osc = this.#ctx.createOscillator();
+    const env = this.#ctx.createGain();
+    osc.type  = shape;
     osc.frequency.setValueAtTime(freq, t);
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(g);
-    g.connect(this.#master);
+    env.gain.setValueAtTime(vol, t);
+    env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(env);
+    env.connect(this.#master);
     osc.start(t);
-    osc.stop(t + dur + 0.02);
+    osc.stop(t + dur + 0.015);
   }
 
-  // Play an array of notes [{f,d,v?,type?}] with tiny gaps between them
-  #seq(notes, baseAt = null) {
-    if (this.#muted || !this.#actx) return;
-    let t = baseAt ?? (this.#actx.currentTime + 0.04);
-    notes.forEach(({ f, d, v = 0.24, type = 'square' }) => {
-      if (f > 0) this.#osc(f, d, v, type, t);
-      t += d + 0.006;
-    });
+  // Schedule an array of {f, d, v?, shape?} notes back-to-back
+  #seq(notes, startAt = null) {
+    if (this.#muted || !this.#ctx) return;
+    let t = startAt ?? (this.#ctx.currentTime + 0.04);
+    for (const { f, d, v = 0.22, shape = 'square' } of notes) {
+      if (f > 0) this.#note(f, d, v, shape, t);
+      t += d + 0.005;
+    }
     return t;
   }
 
-  // --------------------------------------------------------- one-shot sounds -
+  // ============================================= ONE-SHOT SOUNDS
 
   /**
-   * Classic Pac-Man / Ms. Pac-Man coin-insert intro jingle.
-   * The ascending-then-descending melody heard before READY.
+   * start()
+   * Classic Ms. Pac-Man intro jingle -- ascending then descending scale.
+   * Plays once when a new game begins (before READY!).
    */
   start() {
     this.#boot();
     if (this.#muted) return;
     this.#seq([
-      { f: 494, d: 0.08 }, { f: 0, d: 0.03 },
-      { f: 587, d: 0.08 }, { f: 0, d: 0.03 },
-      { f: 698, d: 0.08 }, { f: 0, d: 0.03 },
-      { f: 784, d: 0.15 }, { f: 0, d: 0.04 },
+      { f: 494, d: 0.08 }, { f: 0,   d: 0.03 },
+      { f: 587, d: 0.08 }, { f: 0,   d: 0.03 },
+      { f: 698, d: 0.08 }, { f: 0,   d: 0.03 },
+      { f: 784, d: 0.15 }, { f: 0,   d: 0.04 },
       { f: 698, d: 0.08 },
-      { f: 784, d: 0.22 }, { f: 0, d: 0.06 },
-      { f: 740, d: 0.08 }, { f: 0, d: 0.03 },
-      { f: 659, d: 0.08 }, { f: 0, d: 0.03 },
-      { f: 587, d: 0.08 }, { f: 0, d: 0.03 },
-      { f: 523, d: 0.08 }, { f: 0, d: 0.03 },
-      { f: 494, d: 0.08 }, { f: 0, d: 0.03 },
-      { f: 440, d: 0.28 },
+      { f: 784, d: 0.22 }, { f: 0,   d: 0.06 },
+      { f: 740, d: 0.08 }, { f: 0,   d: 0.03 },
+      { f: 659, d: 0.08 }, { f: 0,   d: 0.03 },
+      { f: 587, d: 0.08 }, { f: 0,   d: 0.03 },
+      { f: 523, d: 0.08 }, { f: 0,   d: 0.03 },
+      { f: 494, d: 0.08 }, { f: 0,   d: 0.03 },
+      { f: 440, d: 0.30 },
     ]);
   }
 
-  /** Alternating two-tone waka for each dot eaten. */
+  /**
+   * waka()
+   * Alternating two-tone chomp for each dot eaten.
+   */
   waka() {
     this.#boot();
     if (this.#muted) return;
-    this.#osc(this.#wakaAlt ? 420 : 300, 0.055, 0.2, 'square');
-    this.#wakaAlt = !this.#wakaAlt;
-  }
-
-  /** Descending frequency sweep when power pellet is eaten. */
-  power() {
-    this.#boot();
-    if (this.#muted || !this.#actx) return;
-    const now = this.#actx.currentTime;
-    const osc = this.#actx.createOscillator();
-    const g   = this.#actx.createGain();
-    osc.type  = 'square';
-    osc.frequency.setValueAtTime(900, now);
-    osc.frequency.exponentialRampToValueAtTime(80, now + 0.42);
-    g.gain.setValueAtTime(0.3, now);
-    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
-    osc.connect(g);
-    g.connect(this.#master);
-    osc.start(now);
-    osc.stop(now + 0.44);
-  }
-
-  /** Ascending tones when ghost is eaten; pitch rises with multiplier. */
-  ghost(mul = 1) {
-    this.#boot();
-    if (this.#muted) return;
-    const base = Math.min(120 * mul, 960);
-    const now  = this.#actx.currentTime;
-    [
-      [base,      0.09],
-      [base * 1.5, 0.09],
-      [base * 2,   0.09],
-      [base * 3,   0.14],
-    ].forEach(([f, d], i) => this.#osc(f, d, 0.24, 'square', now + i * 0.085));
+    this.#note(this.#wakaFlip ? 410 : 290, 0.058, 0.18, 'square');
+    this.#wakaFlip = !this.#wakaFlip;
   }
 
   /**
-   * Classic descending chromatic death sound.
-   * 16 steps from 960 Hz down to 80 Hz.
+   * power()
+   * Descending frequency sweep (900 Hz -> 80 Hz) on power pellet.
+   */
+  power() {
+    this.#boot();
+    if (this.#muted || !this.#ctx) return;
+    const now = this.#ctx.currentTime;
+    const osc = this.#ctx.createOscillator();
+    const env = this.#ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(900, now);
+    osc.frequency.exponentialRampToValueAtTime(80, now + 0.44);
+    env.gain.setValueAtTime(0.28, now);
+    env.gain.exponentialRampToValueAtTime(0.0001, now + 0.44);
+    osc.connect(env); env.connect(this.#master);
+    osc.start(now); osc.stop(now + 0.46);
+  }
+
+  /**
+   * ghost(mul)
+   * Ascending 4-note chord when a ghost is eaten.
+   * Pitch rises with the combo multiplier (200 / 400 / 800 / 1600).
+   */
+  ghost(mul = 1) {
+    this.#boot();
+    if (this.#muted) return;
+    const base = Math.min(110 * mul, 880);
+    const now  = this.#ctx.currentTime;
+    [
+      [base,       0.09],
+      [base * 1.5, 0.09],
+      [base * 2,   0.09],
+      [base * 3,   0.14],
+    ].forEach(([f, d], i) => this.#note(f, d, 0.22, 'square', now + i * 0.085));
+  }
+
+  /**
+   * death()
+   * 16-step chromatic descending crash (960 -> 80 Hz).
    */
   death() {
     this.#boot();
     if (this.#muted) return;
-    const now   = this.#actx.currentTime;
+    const now   = this.#ctx.currentTime;
     const freqs = [960,900,840,780,720,660,600,540,480,420,360,300,240,180,120,80];
-    freqs.forEach((f, i) => this.#osc(f, 0.08, 0.3, 'square', now + i * 0.075));
+    freqs.forEach((f, i) => this.#note(f, 0.082, 0.28, 'square', now + i * 0.078));
   }
 
-  /** Short ascending fanfare when all dots are cleared. */
+  /**
+   * levelClear()
+   * Short ascending fanfare when all dots are cleared.
+   */
   levelClear() {
     this.#boot();
     if (this.#muted) return;
@@ -145,11 +187,14 @@ class ArcadeSound {
       { f: 1047, d: 0.10 },
       { f: 784,  d: 0.06 },
       { f: 880,  d: 0.06 },
-      { f: 1047, d: 0.32 },
+      { f: 1047, d: 0.34 },
     ]);
   }
 
-  /** Sound for collecting bonus fruit; special cascade for peach. */
+  /**
+   * fruit(isPeach)
+   * Bonus fruit collected.  Peach gets an extra sparkle cascade.
+   */
   fruit(isPeach = false) {
     this.#boot();
     if (this.#muted) return;
@@ -157,7 +202,7 @@ class ArcadeSound {
       this.#seq([
         { f: 523,  d: 0.07 }, { f: 659,  d: 0.07 },
         { f: 784,  d: 0.07 }, { f: 1047, d: 0.07 },
-        { f: 1319, d: 0.07 }, { f: 1568, d: 0.14 },
+        { f: 1319, d: 0.07 }, { f: 1568, d: 0.15 },
       ]);
     } else {
       this.#seq([
@@ -168,73 +213,141 @@ class ArcadeSound {
     }
   }
 
-  /** Danger sting played when the level timer hits zero. */
+  /**
+   * timeUp()
+   * 4-note danger sting when the level countdown timer hits zero.
+   */
   timeUp() {
     this.#boot();
     if (this.#muted) return;
-    const now = this.#actx.currentTime;
-    [[880,0.12],[698,0.12],[587,0.12],[440,0.24]]
-      .forEach(([f, d], i) => this.#osc(f, d, 0.32, 'square', now + i * 0.13));
+    const now = this.#ctx.currentTime;
+    [[880,0.12],[698,0.12],[587,0.12],[440,0.26]]
+      .forEach(([f, d], i) => this.#note(f, d, 0.30, 'square', now + i * 0.13));
   }
 
-  // ------------------------------------------------------ continuous loops --
+  // ============================================= CONTINUOUS LOOPS
+  //
+  // Pattern:  one OscillatorNode + one GainNode, started once.
+  //           A rAF callback pre-schedules frequency + gain steps
+  //           300 ms ahead on the AudioContext timeline.
+  //           This avoids ALL node churn and produces zero glitches.
 
-  /**
-   * Background siren that loops continuously.
-   * Call sirenFast() when fewer than 30 dots remain.
-   */
+  // -------------------- SIREN (background, always running during play)
+
+  #sirLoop = () => {
+    if (!this.#ctx || !this.#sirOsc) return;
+    const now   = this.#ctx.currentTime;
+    const table = this.#sirFast ? ArcadeSound.#SIR_FAST : ArcadeSound.#SIR_SLOW;
+    const step  = this.#sirFast ? 0.058 : 0.088;
+    const vol   = this.#muted   ? 0     : 0.115;
+    const duck  = this.#muted   ? 0     : 0.030;
+
+    while (this.#sirNext < now + 0.30) {
+      const f = table[this.#sirStep % table.length];
+      this.#sirOsc.frequency.setValueAtTime(f, this.#sirNext);
+      this.#sirGain.gain.setValueAtTime(vol,  this.#sirNext);
+      this.#sirGain.gain.setValueAtTime(duck, this.#sirNext + step * 0.55);
+      this.#sirNext += step;
+      this.#sirStep++;
+    }
+    this.#sirRaf = requestAnimationFrame(this.#sirLoop);
+  };
+
   sirenStart() {
     this.#boot();
-    if (this.#sirenTick) return;
-    const NOTES = [200,210,220,230,240,250,240,230,220,210];
-    this.#sirenStep = 0;
-    this.#sirenTick = setInterval(() => {
-      if (this.#muted || !this.#actx) return;
-      const f = NOTES[this.#sirenStep % NOTES.length];
-      this.#osc(f, 0.09, 0.1, 'sawtooth');
-      this.#sirenStep++;
-    }, 85);
-  }
+    if (this.#sirOsc) return;          // already running
+    this.#sirFast = false;
+    this.#sirStep = 0;
+    this.#sirNext = this.#ctx.currentTime + 0.02;
 
-  sirenStop() {
-    if (this.#sirenTick) { clearInterval(this.#sirenTick); this.#sirenTick = null; }
+    this.#sirOsc  = this.#ctx.createOscillator();
+    this.#sirGain = this.#ctx.createGain();
+    this.#sirOsc.type = 'sawtooth';
+    this.#sirOsc.frequency.value = 200;
+    this.#sirGain.gain.value = 0;
+    this.#sirOsc.connect(this.#sirGain);
+    this.#sirGain.connect(this.#master);
+    this.#sirOsc.start();
+    this.#sirLoop();
   }
 
   sirenFast() {
-    this.sirenStop();
-    this.#boot();
-    const NOTES = [260,275,290,305,320,305,290,275];
-    this.#sirenStep = 0;
-    this.#sirenTick = setInterval(() => {
-      if (this.#muted || !this.#actx) return;
-      const f = NOTES[this.#sirenStep % NOTES.length];
-      this.#osc(f, 0.06, 0.1, 'sawtooth');
-      this.#sirenStep++;
-    }, 55);
+    // Swap to fast table without restarting the node
+    if (!this.#sirOsc) { this.sirenStart(); }
+    this.#sirFast = true;
   }
 
-  /** Warbling tone during frightened mode. */
+  sirenStop() {
+    if (this.#sirRaf) { cancelAnimationFrame(this.#sirRaf); this.#sirRaf = null; }
+    if (this.#sirOsc) {
+      try { this.#sirOsc.stop(); } catch (_) {}
+      this.#sirOsc.disconnect();
+      this.#sirGain.disconnect();
+      this.#sirOsc = null;
+      this.#sirGain = null;
+    }
+  }
+
+  // -------------------- FRIGHT (warble during frightened mode)
+
+  #frtLoop = () => {
+    if (!this.#ctx || !this.#frtOsc) return;
+    const now  = this.#ctx.currentTime;
+    const step = 0.070;
+    const vol  = this.#muted ? 0 : 0.105;
+    const duck = this.#muted ? 0 : 0.028;
+
+    while (this.#frtNext < now + 0.30) {
+      const f = ArcadeSound.#FRT_TBLE[this.#frtStep % ArcadeSound.#FRT_TBLE.length];
+      this.#frtOsc.frequency.setValueAtTime(f, this.#frtNext);
+      this.#frtGain.gain.setValueAtTime(vol,  this.#frtNext);
+      this.#frtGain.gain.setValueAtTime(duck, this.#frtNext + step * 0.58);
+      this.#frtNext += step;
+      this.#frtStep++;
+    }
+    this.#frtRaf = requestAnimationFrame(this.#frtLoop);
+  };
+
   frightStart() {
-    this.sirenStop();
+    this.sirenStop();          // fright replaces siren
     this.#boot();
-    if (this.#frightTick) return;
-    const NOTES = [140,155,145,162,150,168,148,160];
-    this.#frightStep = 0;
-    this.#frightTick = setInterval(() => {
-      if (this.#muted || !this.#actx) return;
-      this.#osc(NOTES[this.#frightStep % NOTES.length], 0.06, 0.09, 'square');
-      this.#frightStep++;
-    }, 65);
+    if (this.#frtOsc) return;
+    this.#frtStep = 0;
+    this.#frtNext = this.#ctx.currentTime + 0.02;
+
+    this.#frtOsc  = this.#ctx.createOscillator();
+    this.#frtGain = this.#ctx.createGain();
+    this.#frtOsc.type = 'square';
+    this.#frtOsc.frequency.value = 138;
+    this.#frtGain.gain.value = 0;
+    this.#frtOsc.connect(this.#frtGain);
+    this.#frtGain.connect(this.#master);
+    this.#frtOsc.start();
+    this.#frtLoop();
   }
 
   frightStop() {
-    if (this.#frightTick) { clearInterval(this.#frightTick); this.#frightTick = null; }
+    if (this.#frtRaf) { cancelAnimationFrame(this.#frtRaf); this.#frtRaf = null; }
+    if (this.#frtOsc) {
+      try { this.#frtOsc.stop(); } catch (_) {}
+      this.#frtOsc.disconnect();
+      this.#frtGain.disconnect();
+      this.#frtOsc = null;
+      this.#frtGain = null;
+    }
   }
 
-  // ----------------------------------------------------------------- mute --
+  // ============================================= MUTE TOGGLE
   toggleMute() {
     this.#muted = !this.#muted;
-    if (this.#master) this.#master.gain.value = this.#muted ? 0 : 0.32;
+    // Ramp master gain smoothly (avoids click on sudden change)
+    if (this.#master) {
+      const t = this.#ctx ? this.#ctx.currentTime : 0;
+      this.#master.gain.setTargetAtTime(
+        this.#muted ? 0 : 0.30,
+        t, 0.05
+      );
+    }
     return this.#muted;
   }
 }
