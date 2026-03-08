@@ -1,148 +1,242 @@
 /**
- * BABS PAC-MAN  sound.js
- * Classic arcade sounds via Web Audio API.
- * No files. No uploads. Works on GitHub Pages.
+ * sound.js \u2014 Ms. Pac-Man "Georgia Peach Edition"
+ * Classic arcade sounds synthesised via Web Audio API.
+ * No external audio files required.
+ * Approximates the original Namco WSG chip sound palette.
  */
-class SoundEngine {
-  #ac=null; #muted=false; #sirenTimer=null; #frightTimer=null;
-  #sirenPhase=0; #wakaPhase=0;
 
-  #ctx() {
-    if(!this.#ac) this.#ac=new(window.AudioContext||window.webkitAudioContext)();
-    if(this.#ac.state==='suspended') this.#ac.resume();
-    return this.#ac;
+'use strict';
+
+class ArcadeSound {
+  #actx   = null;   // AudioContext
+  #master = null;   // master GainNode
+  #muted  = false;
+
+  // continuous loop handles
+  #sirenTick  = null;
+  #sirenStep  = 0;
+  #frightTick = null;
+  #frightStep = 0;
+
+  // waka alternation
+  #wakaAlt = false;
+
+  // ------------------------------------------------------------------ boot --
+  #boot() {
+    if (this.#actx) { this.#actx.resume(); return; }
+    this.#actx   = new (window.AudioContext || window.webkitAudioContext)();
+    this.#master = this.#actx.createGain();
+    this.#master.gain.value = 0.32;
+    this.#master.connect(this.#actx.destination);
   }
 
-  #tone(freq,type,t,dur,vol=0.18) {
-    if(this.#muted)return;
-    const ac=this.#ctx(),osc=ac.createOscillator(),g=ac.createGain();
-    osc.connect(g); g.connect(ac.destination);
-    osc.type=type;
-    osc.frequency.setValueAtTime(freq,t);
-    g.gain.setValueAtTime(vol,t);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    osc.start(t); osc.stop(t+dur+0.02);
+  // Play one oscillator envelope starting at optional absolute time `at`
+  #osc(freq, dur, vol = 0.25, type = 'square', at = null) {
+    if (this.#muted || !this.#actx) return;
+    const t   = at ?? this.#actx.currentTime;
+    const osc = this.#actx.createOscillator();
+    const g   = this.#actx.createGain();
+    osc.type  = type;
+    osc.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g);
+    g.connect(this.#master);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
   }
 
-  #sweep(f0,f1,type,t,dur,vol=0.15) {
-    if(this.#muted)return;
-    const ac=this.#ctx(),osc=ac.createOscillator(),g=ac.createGain();
-    osc.connect(g); g.connect(ac.destination);
-    osc.type=type;
-    osc.frequency.setValueAtTime(f0,t);
-    osc.frequency.linearRampToValueAtTime(f1,t+dur);
-    g.gain.setValueAtTime(vol,t);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    osc.start(t); osc.stop(t+dur+0.02);
+  // Play an array of notes [{f,d,v?,type?}] with tiny gaps between them
+  #seq(notes, baseAt = null) {
+    if (this.#muted || !this.#actx) return;
+    let t = baseAt ?? (this.#actx.currentTime + 0.04);
+    notes.forEach(({ f, d, v = 0.24, type = 'square' }) => {
+      if (f > 0) this.#osc(f, d, v, type, t);
+      t += d + 0.006;
+    });
+    return t;
   }
 
-  get isMuted(){return this.#muted;}
+  // --------------------------------------------------------- one-shot sounds -
 
-  toggleMute(){
-    this.#muted=!this.#muted;
-    if(this.#muted){this.sirenStop();this.frightStop();}
+  /**
+   * Classic Pac-Man / Ms. Pac-Man coin-insert intro jingle.
+   * The ascending-then-descending melody heard before READY.
+   */
+  start() {
+    this.#boot();
+    if (this.#muted) return;
+    this.#seq([
+      { f: 494, d: 0.08 }, { f: 0, d: 0.03 },
+      { f: 587, d: 0.08 }, { f: 0, d: 0.03 },
+      { f: 698, d: 0.08 }, { f: 0, d: 0.03 },
+      { f: 784, d: 0.15 }, { f: 0, d: 0.04 },
+      { f: 698, d: 0.08 },
+      { f: 784, d: 0.22 }, { f: 0, d: 0.06 },
+      { f: 740, d: 0.08 }, { f: 0, d: 0.03 },
+      { f: 659, d: 0.08 }, { f: 0, d: 0.03 },
+      { f: 587, d: 0.08 }, { f: 0, d: 0.03 },
+      { f: 523, d: 0.08 }, { f: 0, d: 0.03 },
+      { f: 494, d: 0.08 }, { f: 0, d: 0.03 },
+      { f: 440, d: 0.28 },
+    ]);
+  }
+
+  /** Alternating two-tone waka for each dot eaten. */
+  waka() {
+    this.#boot();
+    if (this.#muted) return;
+    this.#osc(this.#wakaAlt ? 420 : 300, 0.055, 0.2, 'square');
+    this.#wakaAlt = !this.#wakaAlt;
+  }
+
+  /** Descending frequency sweep when power pellet is eaten. */
+  power() {
+    this.#boot();
+    if (this.#muted || !this.#actx) return;
+    const now = this.#actx.currentTime;
+    const osc = this.#actx.createOscillator();
+    const g   = this.#actx.createGain();
+    osc.type  = 'square';
+    osc.frequency.setValueAtTime(900, now);
+    osc.frequency.exponentialRampToValueAtTime(80, now + 0.42);
+    g.gain.setValueAtTime(0.3, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+    osc.connect(g);
+    g.connect(this.#master);
+    osc.start(now);
+    osc.stop(now + 0.44);
+  }
+
+  /** Ascending tones when ghost is eaten; pitch rises with multiplier. */
+  ghost(mul = 1) {
+    this.#boot();
+    if (this.#muted) return;
+    const base = Math.min(120 * mul, 960);
+    const now  = this.#actx.currentTime;
+    [
+      [base,      0.09],
+      [base * 1.5, 0.09],
+      [base * 2,   0.09],
+      [base * 3,   0.14],
+    ].forEach(([f, d], i) => this.#osc(f, d, 0.24, 'square', now + i * 0.085));
+  }
+
+  /**
+   * Classic descending chromatic death sound.
+   * 16 steps from 960 Hz down to 80 Hz.
+   */
+  death() {
+    this.#boot();
+    if (this.#muted) return;
+    const now   = this.#actx.currentTime;
+    const freqs = [960,900,840,780,720,660,600,540,480,420,360,300,240,180,120,80];
+    freqs.forEach((f, i) => this.#osc(f, 0.08, 0.3, 'square', now + i * 0.075));
+  }
+
+  /** Short ascending fanfare when all dots are cleared. */
+  levelClear() {
+    this.#boot();
+    if (this.#muted) return;
+    this.#seq([
+      { f: 523,  d: 0.10 },
+      { f: 659,  d: 0.10 },
+      { f: 784,  d: 0.10 },
+      { f: 1047, d: 0.10 },
+      { f: 784,  d: 0.06 },
+      { f: 880,  d: 0.06 },
+      { f: 1047, d: 0.32 },
+    ]);
+  }
+
+  /** Sound for collecting bonus fruit; special cascade for peach. */
+  fruit(isPeach = false) {
+    this.#boot();
+    if (this.#muted) return;
+    if (isPeach) {
+      this.#seq([
+        { f: 523,  d: 0.07 }, { f: 659,  d: 0.07 },
+        { f: 784,  d: 0.07 }, { f: 1047, d: 0.07 },
+        { f: 1319, d: 0.07 }, { f: 1568, d: 0.14 },
+      ]);
+    } else {
+      this.#seq([
+        { f: 659,  d: 0.09 },
+        { f: 784,  d: 0.09 },
+        { f: 1047, d: 0.14 },
+      ]);
+    }
+  }
+
+  /** Danger sting played when the level timer hits zero. */
+  timeUp() {
+    this.#boot();
+    if (this.#muted) return;
+    const now = this.#actx.currentTime;
+    [[880,0.12],[698,0.12],[587,0.12],[440,0.24]]
+      .forEach(([f, d], i) => this.#osc(f, d, 0.32, 'square', now + i * 0.13));
+  }
+
+  // ------------------------------------------------------ continuous loops --
+
+  /**
+   * Background siren that loops continuously.
+   * Call sirenFast() when fewer than 30 dots remain.
+   */
+  sirenStart() {
+    this.#boot();
+    if (this.#sirenTick) return;
+    const NOTES = [200,210,220,230,240,250,240,230,220,210];
+    this.#sirenStep = 0;
+    this.#sirenTick = setInterval(() => {
+      if (this.#muted || !this.#actx) return;
+      const f = NOTES[this.#sirenStep % NOTES.length];
+      this.#osc(f, 0.09, 0.1, 'sawtooth');
+      this.#sirenStep++;
+    }, 85);
+  }
+
+  sirenStop() {
+    if (this.#sirenTick) { clearInterval(this.#sirenTick); this.#sirenTick = null; }
+  }
+
+  sirenFast() {
+    this.sirenStop();
+    this.#boot();
+    const NOTES = [260,275,290,305,320,305,290,275];
+    this.#sirenStep = 0;
+    this.#sirenTick = setInterval(() => {
+      if (this.#muted || !this.#actx) return;
+      const f = NOTES[this.#sirenStep % NOTES.length];
+      this.#osc(f, 0.06, 0.1, 'sawtooth');
+      this.#sirenStep++;
+    }, 55);
+  }
+
+  /** Warbling tone during frightened mode. */
+  frightStart() {
+    this.sirenStop();
+    this.#boot();
+    if (this.#frightTick) return;
+    const NOTES = [140,155,145,162,150,168,148,160];
+    this.#frightStep = 0;
+    this.#frightTick = setInterval(() => {
+      if (this.#muted || !this.#actx) return;
+      this.#osc(NOTES[this.#frightStep % NOTES.length], 0.06, 0.09, 'square');
+      this.#frightStep++;
+    }, 65);
+  }
+
+  frightStop() {
+    if (this.#frightTick) { clearInterval(this.#frightTick); this.#frightTick = null; }
+  }
+
+  // ----------------------------------------------------------------- mute --
+  toggleMute() {
+    this.#muted = !this.#muted;
+    if (this.#master) this.#master.gain.value = this.#muted ? 0 : 0.32;
     return this.#muted;
-  }
-
-  /* Opening jingle - Namco Pac-Man intro theme approximation */
-  start(){
-    if(this.#muted)return;
-    const ac=this.#ctx(),t=ac.currentTime+0.05;
-    [[494,0.00,0.11],[370,0.12,0.08],[311,0.21,0.08],
-     [330,0.30,0.08],[494,0.39,0.11],[370,0.51,0.17],
-     [494,0.72,0.11],[370,0.84,0.08],[311,0.93,0.08],
-     [330,1.02,0.08],[494,1.11,0.22],
-     [587,1.36,0.09],[698,1.46,0.09],[784,1.56,0.09],[988,1.66,0.20]]
-    .forEach(([f,o,d])=>this.#tone(f,'square',t+o,d,0.20));
-  }
-
-  /* Waka-waka dot chomp - alternates hi/lo pitch */
-  waka(){
-    if(this.#muted)return;
-    const ac=this.#ctx();
-    this.#tone(this.#wakaPhase===0?440:330,'square',ac.currentTime,0.055,0.13);
-    this.#wakaPhase^=1;
-  }
-
-  /* Power pellet - rising warble */
-  power(){
-    if(this.#muted)return;
-    const ac=this.#ctx(),t=ac.currentTime;
-    this.#sweep(130,520,'sawtooth',t,0.10,0.22);
-    this.#sweep(520,1040,'square',t+0.09,0.10,0.16);
-  }
-
-  /* Ghost eaten - double blip, pitch rises each ghost */
-  ghost(multiplier=1){
-    if(this.#muted)return;
-    const ac=this.#ctx(),t=ac.currentTime,f=260*multiplier;
-    this.#sweep(f,f*2.1,'square',t,0.07,0.22);
-    this.#sweep(f*2.1,f,'square',t+0.07,0.07,0.18);
-    this.#tone(f*3,'sine',t+0.16,0.10,0.14);
-  }
-
-  /* Fruit collected - arpeggio. Peach gets shimmer trill */
-  fruit(isPeach=false){
-    if(this.#muted)return;
-    const ac=this.#ctx(),t=ac.currentTime;
-    const notes=isPeach?[523,659,784,1047,1319,1568]:[523,659,784,1047];
-    notes.forEach((f,i)=>this.#tone(f,'square',t+i*0.07,0.09,0.18));
-    if(isPeach) this.#sweep(1568,2093,'sine',t+notes.length*0.07,0.18,0.12);
-  }
-
-  /* Death - 12-step descending chromatic run */
-  death(){
-    if(this.#muted)return;
-    const ac=this.#ctx(),t=ac.currentTime+0.08;
-    [494,466,440,415,392,370,349,330,311,294,277,261]
-      .forEach((f,i)=>this.#tone(f,'sawtooth',t+i*0.075,0.10,0.20));
-    this.#sweep(130,55,'sawtooth',t+12*0.075,0.28,0.28);
-  }
-
-  /* Level clear - ascending fanfare */
-  levelClear(){
-    if(this.#muted)return;
-    const ac=this.#ctx(),t=ac.currentTime+0.05;
-    [[523,0.00,0.10],[659,0.11,0.10],[784,0.22,0.10],[1047,0.33,0.12],
-     [784,0.47,0.08],[1047,0.56,0.10],[1319,0.68,0.22]]
-      .forEach(([f,o,d])=>this.#tone(f,'square',t+o,d,0.20));
-    this.#sweep(1319,1760,'sine',t+0.95,0.22,0.16);
-  }
-
-  /* Background siren loop */
-  sirenStart(){this.sirenStop();this.#runSiren(400);}
-  sirenFast() {this.sirenStop();this.#runSiren(220);}
-
-  #runSiren(interval){
-    if(this.#muted)return;
-    this.#sirenPhase=0;
-    this.#sirenTimer=setInterval(()=>{
-      if(this.#muted)return;
-      const ac=this.#ctx();
-      const[f0,f1]=this.#sirenPhase===0?[200,260]:[260,200];
-      this.#sweep(f0,f1,'sine',ac.currentTime,(interval/1000)*0.85,0.07);
-      this.#sirenPhase^=1;
-    },interval);
-  }
-
-  sirenStop(){
-    if(this.#sirenTimer){clearInterval(this.#sirenTimer);this.#sirenTimer=null;}
-  }
-
-  /* Fright warble while ghosts are blue */
-  frightStart(){
-    this.frightStop();
-    if(this.#muted)return;
-    this.#frightTimer=setInterval(()=>{
-      if(this.#muted)return;
-      const ac=this.#ctx();
-      this.#sweep(160,220,'sine',ac.currentTime,0.13,0.07);
-    },260);
-  }
-
-  frightStop(){
-    if(this.#frightTimer){clearInterval(this.#frightTimer);this.#frightTimer=null;}
   }
 }
 
-export const snd=new SoundEngine();
+export const snd = new ArcadeSound();
