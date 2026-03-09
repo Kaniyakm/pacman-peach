@@ -215,7 +215,7 @@
 </main>
 
 <!-- ══ MUTE BUTTON ══ -->
-<button id="mute-btn" onclick="SOUND.toggleMute(); this.textContent=SOUND.isMuted?'🔇 MUTED':'🔊 SOUND'">🔊 SOUND</button>
+<button id="mute-btn" onclick="if(window.SOUND){window.SOUND.toggleMute();this.textContent=window.SOUND.isMuted?'🔇 MUTED':'🔊 SOUND'}">🔊 SOUND</button>
 
 <!-- ══ MOBILE D-PAD ══ -->
 <div class="dpad">
@@ -228,10 +228,9 @@
   <button class="dpad-btn" id="dpad-down">▼</button>
 </div>
 
-<!-- Sound engine — must load BEFORE game.js so window.SOUND exists -->
-<script src="sound.js"></script>
-<!-- Game — no type="module" needed (window.SOUND is a plain global) -->
-<script src="game.js"></script>
+<!-- Sound engine loads first, then game.js — defer preserves order -->
+<script src="sound.js" defer></script>
+<script src="game.js" defer></script>
 
 </body>
 </html>
