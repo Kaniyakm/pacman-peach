@@ -1,34 +1,42 @@
 /**
- * BABS' MS. PAC-MAN \u2014 Georgia Peach Edition
- * game.js  \u2014  full game logic + sprite rendering + sound
- * For Barbara "Babs" Jackson  \u{1F351}
- * 
+ * BABS' PAC-MAN — Georgia Peach Edition
+ * game.js  —  full game logic + sprite rendering + sound
+ *
+ * For Barbara "Babs" Jackson  🍑
+ *
+ * Requires: sound.js (same folder)
+ * Sprite sheets (32px cells):
+ *   assets/sprites/pacman.png   8×4
+ *   assets/sprites/ghosts.png   8×7
+ *   assets/sprites/fruits.png  10×2
+ *   assets/sprites/pellets.png  6×2
  */
 
-// ES modules are implicitly strict \u2014 no 'use strict' needed or allowed after import.
 import { snd } from './sound.js';
 
-// ??????????????????????????????????????????????????????????
-// ? 1  TRIBUTE
-// ??????????????????????????????????????????????????????????
+'use strict';
+
+// ══════════════════════════════════════════════════════════
+// § 1  TRIBUTE
+// ══════════════════════════════════════════════════════════
 const TRIBUTE = Object.freeze({
   name:     'Barbara Jackson',
   nickname: 'BABS',
-  hiScore:  3333330,
+  hiScore:  3_333_330,
   hiYear:   '1987',
   gameoverMessages: [
-    "Babs would've kept going! \u{1F351}",
-    "Sweet as a peach \u2014 try again! \u{1F351}",
-    "Georgia never quits! \u{1F351}",
-    "One more for Babs! \u{1F351}",
-    "She never gave up \u2014 neither should you! \u{1F351}",
-    "Babs scored higher with her eyes closed! \u{1F351}",
+    "Babs would've kept going! 🍑",
+    "Sweet as a peach — try again! 🍑",
+    "Georgia never quits! 🍑",
+    "One more for Babs! 🍑",
+    "She never gave up — neither should you! 🍑",
+    "Babs scored higher with her eyes closed! 🍑",
   ],
 });
 
-// ??????????????????????????????????????????????????????????
-// ? 2  CONSTANTS
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 2  CONSTANTS
+// ══════════════════════════════════════════════════════════
 const CFG = Object.freeze({
   TILE:         20,
   COLS:         21,
@@ -50,14 +58,13 @@ const STATE = Object.freeze({
   READY:      Symbol('ready'),
   PLAYING:    Symbol('playing'),
   DYING:      Symbol('dying'),
-  TIMEOUT:    Symbol('timeout'),   // level timer hit zero
   LEVELCLEAR: Symbol('levelclear'),
   GAMEOVER:   Symbol('gameover'),
 });
 
-// ??????????????????????????????????????????????????????????
-// ? 3  SPRITE SHEET SYSTEM
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 3  SPRITE SHEET SYSTEM
+// ══════════════════════════════════════════════════════════
 class SpriteSheet {
   #img   = null;
   #ready = false;
@@ -74,8 +81,6 @@ class SpriteSheet {
   blit(ctx, col, row, dx, dy, scale, flipX = false) {
     if (!this.#ready) return false;
     const C   = CFG.CELL;
-    // Bounds check: if the sprite sheet doesn't have this row/col, use canvas fallback
-    if (row * C >= this.#img.naturalHeight || col * C >= this.#img.naturalWidth) return false;
     const sc  = scale ?? (CFG.TILE / C);
     const dim = C * sc;
     ctx.save();
@@ -97,20 +102,6 @@ const SPRITES = {
   fruits:  new SpriteSheet('assets/sprites/fruits.png'),
   pellets: new SpriteSheet('assets/sprites/pellets.png'),
 };
-
-// Ms. Pac-Man directional SVG sprites (user-supplied)
-const PAC_SVGS = {};
-for (const dir of ['right','left','up','down']) {
-  const img = new Image();
-  img.src = `assets/sprites/ms-pacman-${dir}.svg`;
-  PAC_SVGS[dir] = img;
-}
-function pacSvgKey(dx, dy) {
-  if (dx < 0) return 'left';
-  if (dy < 0) return 'up';
-  if (dy > 0) return 'down';
-  return 'right'; // default / stationary
-}
 
 function pacRow(dx, dy) {
   if (dy < 0) return 1;
@@ -135,34 +126,11 @@ const FRUIT_COL = new Map([
   ['grapes',5],['watermelon',6],['bell',7],['key',8],['peach',9],
 ]);
 
-// ??????????????????????????????????????????????????????????
-// ? 4  CANVAS FALLBACKS
-// ??????????????????????????????????????????????????????????
-// Draw just the Ms. Pac-Man accessories (bow + beauty mark) in screen space.
-// Called separately so they sit on top of both the sprite and the fallback body.
-function fbMsPacBow(ctx, x, y, r) {
-  ctx.save();
-  const bx = x, by = y - r * 0.84;
-  ctx.shadowColor = '#FF0066'; ctx.shadowBlur = 5;
-  ctx.fillStyle   = '#FF1177';
-  // left bow lobe
-  ctx.beginPath(); ctx.ellipse(bx - r*.22, by, r*.22, r*.14, -0.32, 0, Math.PI*2); ctx.fill();
-  // right bow lobe
-  ctx.beginPath(); ctx.ellipse(bx + r*.22, by, r*.22, r*.14,  0.32, 0, Math.PI*2); ctx.fill();
-  // centre knot
-  ctx.fillStyle = '#CC0044';
-  ctx.beginPath(); ctx.ellipse(bx, by, r*.09, r*.09, 0, 0, Math.PI*2); ctx.fill();
-  // beauty mark
-  ctx.shadowBlur  = 0;
-  ctx.fillStyle   = '#331100';
-  ctx.beginPath(); ctx.arc(x + r*.36, y + r*.24, r*.055, 0, Math.PI*2); ctx.fill();
-  ctx.restore();
-}
-
+// ══════════════════════════════════════════════════════════
+// § 4  CANVAS FALLBACKS
+// ══════════════════════════════════════════════════════════
 function fbPacman(ctx, x, y, dx, dy, mouthDeg, dying, deathPct) {
   const r = CFG.TILE * 0.47;
-
-  // ----- body (rotated with direction) -----
   ctx.save(); ctx.translate(x, y);
   ctx.shadowColor = '#FFD700'; ctx.shadowBlur = 14;
   const g = ctx.createRadialGradient(-r*.2,-r*.2,0,0,0,r);
@@ -175,14 +143,8 @@ function fbPacman(ctx, x, y, dx, dy, mouthDeg, dying, deathPct) {
     ctx.rotate(Math.atan2(dy, dx||1));
     const m = mouthDeg * Math.PI;
     ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,r,m,Math.PI*2-m); ctx.closePath(); ctx.fill();
-    // red lipstick at the leading edge
-    ctx.fillStyle = '#FF3355';
-    ctx.beginPath(); ctx.arc(r*0.52, 0, r*0.19, m*0.8, (Math.PI*2-m)*0.9); ctx.fill();
   }
   ctx.restore();
-
-  // ----- Ms. Pac-Man accessories (screen-space, never rotated) -----
-  if (!dying) fbMsPacBow(ctx, x, y, r);
 }
 
 function fbGhost(ctx, x, y, color, dx, dy, frightened, frightTimer, frame) {
@@ -215,73 +177,42 @@ function fbOrange(ctx, x, y) {
   ctx.restore();
 }
 
-// FIX: ctx.fillStyle='white' added \u2014 previously missing, so text inherited
-// near-black #000008 and was invisible against the black canvas background.
-// emoji property is now populated on every FRUITS entry (see ? 5).
-// Fruit color map for canvas fallback (guaranteed visible)
-const FRUIT_COLORS = {
-  cherry:'#DD1111', strawberry:'#EE2244', orange:'#FF8800',
-  apple:'#CC2200', melon:'#44BB22', grapes:'#8833DD',
-  watermelon:'#228822', bell:'#FFDD00', key:'#AAAAAA', peach:'#FFAB76'
-};
 function fbFruit(ctx, x, y, def) {
   if (def.id === 'orange') { fbOrange(ctx, x, y); return; }
-  const r = CFG.TILE * 0.42;
-  const col = FRUIT_COLORS[def.id] || '#FFFF00';
   ctx.save();
-  // Glowing coloured circle -- always visible
-  ctx.shadowColor = col; ctx.shadowBlur = 14;
-  const g = ctx.createRadialGradient(x-r*.25,y-r*.25,0,x,y,r);
-  g.addColorStop(0, '#FFFFFF88'); g.addColorStop(0.4, col); g.addColorStop(1, col+'AA');
-  ctx.fillStyle = g;
-  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
-  // White letter initial (always readable)
-  ctx.shadowBlur = 0; ctx.fillStyle = '#FFFFFF';
-  ctx.font = `bold ${Math.round(CFG.TILE*0.52)}px monospace`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText((def.name||'?')[0].toUpperCase(), x, y+1);
-  // Special peach sparkle ring
-  if (def.id === 'peach') {
-    ctx.strokeStyle = '#FFD700'; ctx.lineWidth = 1.5;
-    ctx.setLineDash([2,2]);
-    ctx.beginPath(); ctx.arc(x, y, r+3, 0, Math.PI*2); ctx.stroke();
-    ctx.setLineDash([]);
-  }
+  ctx.font = `${Math.round(CFG.TILE*.9)}px serif`;
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  if (def.id==='peach'){ctx.shadowColor='#FFAB76';ctx.shadowBlur=16;}
+  ctx.fillText(def.emoji||'?', x, y);
   ctx.restore();
 }
 
-// ??????????????????????????????????????????????????????????
-// ? 5  FRUITS
-// FIX: emoji property added to every entry.  fbFruit was calling
-// def.emoji||'?' \u2014 without the property every fruit rendered as '?'.
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 5  FRUITS
+// ══════════════════════════════════════════════════════════
 const FRUITS = Object.freeze([
-  { id:'cherry',     emoji:'\u{1F352}', name:'Cherry',     basePoints:100,  mult:1, minLevel:1 },
-  { id:'strawberry', emoji:'\u{1F353}', name:'Strawberry', basePoints:300,  mult:1, minLevel:2 },
-  { id:'orange',     emoji:'\u{1F34A}', name:'Orange',     basePoints:500,  mult:1, minLevel:3 },
-  { id:'apple',      emoji:'\u{1F34E}', name:'Apple',      basePoints:700,  mult:1, minLevel:4 },
-  { id:'melon',      emoji:'\u{1F348}', name:'Melon',      basePoints:1000, mult:1, minLevel:5 },
-  { id:'grapes',     emoji:'\u{1F347}', name:'Grapes',     basePoints:2000, mult:1, minLevel:6 },
-  { id:'watermelon', emoji:'\u{1F349}', name:'Watermelon', basePoints:3000, mult:1, minLevel:7 },
-  { id:'bell',       emoji:'\u{1F514}', name:'Bell',       basePoints:3000, mult:1, minLevel:8 },
-  { id:'key',        emoji:'\u{1F5DD}', name:'Key',        basePoints:5000, mult:1, minLevel:9 },
-  { id:'peach',      emoji:'\u{1F351}', name:'Peach',      basePoints:500,  mult:3, minLevel:1 },
+  { id:'cherry',     name:'Cherry',     basePoints:100,  mult:1, minLevel:1 },
+  { id:'strawberry', name:'Strawberry', basePoints:300,  mult:1, minLevel:2 },
+  { id:'orange',     name:'Orange',     basePoints:500,  mult:1, minLevel:3 },
+  { id:'apple',      name:'Apple',      basePoints:700,  mult:1, minLevel:4 },
+  { id:'melon',      name:'Melon',      basePoints:1000, mult:1, minLevel:5 },
+  { id:'grapes',     name:'Grapes',     basePoints:2000, mult:1, minLevel:6 },
+  { id:'watermelon', name:'Watermelon', basePoints:3000, mult:1, minLevel:7 },
+  { id:'bell',       name:'Bell',       basePoints:3000, mult:1, minLevel:8 },
+  { id:'key',        name:'Key',        basePoints:5000, mult:1, minLevel:9 },
+  { id:'peach',      name:'Peach',      basePoints:500,  mult:3, minLevel:1 },
 ]);
 
 function fruitForLevel(level) {
-  const pool = FRUITS.filter(f => f.id !== 'peach');
-  // 60% chance: level-appropriate fruit (cherry on L1, strawberry on L2, etc.)
-  // 40% chance: fully random from all fruits \u2014 keeps variety even on L1
-  const levelIdx  = Math.min(level - 1, pool.length - 1);
-  const canonical = Math.random() < 0.6 ? pool[levelIdx]
-                  : pool[Math.floor(Math.random() * pool.length)];
-  const peachChance = Math.min(0.15 + (level - 1) * 0.03, 0.40);
+  const eligible  = FRUITS.filter(f => f.id !== 'peach' && f.minLevel <= level);
+  const canonical = eligible.length ? eligible[eligible.length - 1] : FRUITS[0];
+  const peachChance = Math.min(0.20 + (level - 1) * 0.04, 0.45);
   return Math.random() < peachChance ? FRUITS.find(f => f.id === 'peach') : canonical;
 }
 
-// ??????????????????????????????????????????????????????????
-// ? 6  BONUS FRUIT
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 6  BONUS FRUIT
+// ══════════════════════════════════════════════════════════
 class BonusFruit {
   #def; #x; #y; #timer; #collected=false; #bobFrame=0; #collectFrame=-1;
 
@@ -294,7 +225,6 @@ class BonusFruit {
   get collected() { return this.#collected; }
 
   collect() { this.#collected=true; this.#collectFrame=0; }
-  get fadeComplete(){ return this.#collected && this.#collectFrame>=12; }
 
   update() {
     this.#timer--;
@@ -322,9 +252,9 @@ class BonusFruit {
   }
 }
 
-// ??????????????????????????????????????????????????????????
-// ? 7  SCORE POPUP
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 7  SCORE POPUP
+// ══════════════════════════════════════════════════════════
 class ScorePopup {
   constructor(x,y,value,isTriple=false){this.x=x;this.y=y;this.value=value;this.isTriple=isTriple;this.life=75;}
   update(){this.y-=.55;this.life--;}
@@ -336,15 +266,15 @@ class ScorePopup {
     ctx.fillStyle=col;ctx.shadowColor=col;ctx.shadowBlur=8;
     ctx.font=`bold ${this.isTriple?9:8}px "Press Start 2P"`;
     ctx.textAlign='center';
-    if(this.isTriple)ctx.fillText('\u{1F351}\u00D73',this.x,this.y-10);
+    if(this.isTriple)ctx.fillText('🍑×3',this.x,this.y-10);
     ctx.fillText(this.value,this.x,this.y);
     ctx.restore();
   }
 }
 
-// ??????????????????????????????????????????????????????????
-// ? 8  EVENT BUS
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 8  EVENT BUS
+// ══════════════════════════════════════════════════════════
 class EventBus {
   #map=new Map();
   on(e,cb){if(!this.#map.has(e))this.#map.set(e,new Set());this.#map.get(e).add(cb);return()=>this.off(e,cb);}
@@ -353,9 +283,9 @@ class EventBus {
 }
 const bus=new EventBus();
 
-// ??????????????????????????????????????????????????????????
-// ? 9  SCORE MANAGER
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 9  SCORE MANAGER
+// ══════════════════════════════════════════════════════════
 class ScoreManager {
   #score=0; #ghostMul=1;
   static BABS_HI=TRIBUTE.hiScore;
@@ -368,9 +298,9 @@ class ScoreManager {
   get ghostMul(){return this.#ghostMul;}
 }
 
-// ??????????????????????????????????????????????????????????
-// ? 10  MAP
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 10  MAP
+// ══════════════════════════════════════════════════════════
 const BASE_MAP=[
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
   [1,2,2,2,2,2,2,2,2,2,1,2,2,2,2,2,2,2,2,2,1],
@@ -397,9 +327,9 @@ const BASE_MAP=[
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
 ];
 
-// ??????????????????????????????????????????????????????????
-// ? 11  MAZE
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 11  MAZE
+// ══════════════════════════════════════════════════════════
 class Maze {
   #grid=[]; #dotsLeft=0;
 
@@ -458,9 +388,9 @@ class Maze {
   }
 }
 
-// ??????????????????????????????????????????????????????????
-// ? 12  ENTITY BASE
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 12  ENTITY BASE
+// ══════════════════════════════════════════════════════════
 class Entity {
   constructor(x,y,speed){this.x=x;this.y=y;this.dx=0;this.dy=0;this.speed=speed;}
   get col(){return Math.round((this.x-CFG.TILE/2)/CFG.TILE);}
@@ -477,9 +407,9 @@ class Entity {
   _wrapX(){const w=CFG.COLS*CFG.TILE;if(this.x<0)this.x=w;if(this.x>w)this.x=0;}
 }
 
-// ??????????????????????????????????????????????????????????
-// ? 13  PAC-MAN
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 13  PAC-MAN
+// ══════════════════════════════════════════════════════════
 class Pacman extends Entity {
   #mouth=.25; #mouthDir=1; #nextDx=0; #nextDy=0;
   deathFrame=0;
@@ -500,86 +430,86 @@ class Pacman extends Entity {
 
   draw(ctx,globalFrame,dying=false){
     const {x,y}=this;
-    const r=CFG.TILE*0.47;
     if(dying){
-      fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,true,this.deathFrame);
+      const col=Math.min(7,Math.floor(this.deathFrame/(CFG.DEATH_FRAMES/8)));
+      const drawn=SPRITES.pacman.blit(ctx,col,3,x,y);
+      if(!drawn)fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,true,this.deathFrame);
       return;
     }
-    // Try SVG sprite first -- includes bow, beauty mark, correct direction
-    const svgImg = PAC_SVGS[pacSvgKey(this.dx,this.dy)];
-    const svgReady = svgImg && svgImg.complete && svgImg.naturalWidth > 0;
-    if(svgReady){
-      // Animate mouth: alternate SVG (open) with a tiny scale-down (closed feel)
-      const mouthOpen = Math.floor(globalFrame/5)%2===0;
-      const size = CFG.TILE * (mouthOpen ? 1.15 : 1.05);
-      ctx.save();
-      ctx.drawImage(svgImg, x-size/2, y-size/2, size, size);
-      ctx.restore();
-    } else {
-      // Canvas fallback -- includes bow via fbMsPacBow inside fbPacman
-      fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,false,0);
-    }
+    const row=pacRow(this.dx,this.dy);
+    const col=pacCol(globalFrame);
+    const flipX=this.dx<0;
+    const drawn=SPRITES.pacman.blit(ctx,col,row,x,y,undefined,flipX);
+    if(!drawn)fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,false,0);
   }
 }
 
-// ??????????????????????????????????????????????????????????
-// ? 14  GHOST
-//
-// FIX 1 \u2014 exit position:
-//   Old code placed ghosts at row 9 (col 10) then set dy=-1.
-//   map[8][10] = WALL, so the very first move upward was always blocked.
-//   Ghosts oscillated in the pen but never escaped.
-//   Fix: on release, teleport to row 7, col 10 \u2014 the open corridor directly
-//   above the ghost house. This matches how the original arcade handles the
-//   moment a ghost passes through the door.
-//
-// FIX 2 \u2014 scatter / chase mode:
-//   update() now accepts a `scatter` boolean forwarded from the Game's
-//   phase timer.  #chooseDir() uses each ghost's home corner as its target
-//   during scatter, and the normal chase AI during chase.
-//   GHOST_DEFS now includes scatterTarget coordinates.
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 14  GHOST
+// ══════════════════════════════════════════════════════════
+// Scatter corners (tile coords × TILE = px target)
+const SCATTER = Object.freeze([
+  {x:18*CFG.TILE, y:0},            // Blinky → top-right
+  {x:2*CFG.TILE,  y:0},            // Pinky  → top-left
+  {x:20*CFG.TILE, y:22*CFG.TILE},  // Inky   → bottom-right
+  {x:0,           y:22*CFG.TILE},  // Clyde  → bottom-left
+]);
+
+// Scatter/chase phases (frames): scatter,chase,scatter,chase,...
+const PHASE_TIMES=[280,700,200,1600,200,1600,200,Infinity];
+
 const GhostAI={
   blinky:(g,pac)=>({x:pac.x,y:pac.y}),
-  pinky: (g,pac)=>({x:pac.x+pac.dx*CFG.TILE*4,y:pac.y+pac.dy*CFG.TILE*4}),
-  inky:  (g,pac,all)=>{const b=all[0],px=pac.x+pac.dx*CFG.TILE*2,py=pac.y+pac.dy*CFG.TILE*2;return{x:px*2-b.x,y:py*2-b.y};},
-  clyde: (g,pac)=>Math.hypot(g.x-pac.x,g.y-pac.y)>CFG.TILE*8?{x:pac.x,y:pac.y}:{x:0,y:CFG.ROWS*CFG.TILE},
+  pinky: (g,pac)=>{
+    // Aim 4 tiles ahead of Pac-Man
+    const tx=pac.x+pac.dx*CFG.TILE*4, ty=pac.y+pac.dy*CFG.TILE*4;
+    return {x:tx,y:ty};
+  },
+  inky:  (g,pac,all)=>{
+    // Vector from Blinky doubled past 2 tiles ahead of Pac
+    const b=all[0];
+    const px=pac.x+pac.dx*CFG.TILE*2, py=pac.y+pac.dy*CFG.TILE*2;
+    return{x:px*2-b.x, y:py*2-b.y};
+  },
+  clyde: (g,pac)=>{
+    // Chase when far, scatter when close
+    return Math.hypot(g.x-pac.x,g.y-pac.y)>CFG.TILE*8
+      ? {x:pac.x,y:pac.y}
+      : SCATTER[3];
+  },
 };
 const AI_FNS=[GhostAI.blinky,GhostAI.pinky,GhostAI.inky,GhostAI.clyde];
 
 const GHOST_DEFS=Object.freeze([
-  // Blinky starts OUTSIDE the house (original Pac-Man behaviour).
-  // startOutside=true skips the inHouse logic entirely.
-  {name:'BLINKY',color:'#FF0000',startCol:10,startRow:7, startOutside:true,
-   scatterTarget:{x:CFG.COLS*CFG.TILE, y:0}},
-  {name:'PINKY', color:'#FFB8FF',startCol:10,startRow:10,startOutside:false,
-   scatterTarget:{x:0,                 y:0}},
-  {name:'INKY',  color:'#00FFFF',startCol:9, startRow:10,startOutside:false,
-   scatterTarget:{x:CFG.COLS*CFG.TILE, y:CFG.ROWS*CFG.TILE}},
-  {name:'CLYDE', color:'#FFB852',startCol:11,startRow:10,startOutside:false,
-   scatterTarget:{x:0,                 y:CFG.ROWS*CFG.TILE}},
+  // Blinky starts just above the house, already outside
+  {name:'BLINKY',color:'#FF0000',startCol:10,startRow:9},
+  {name:'PINKY', color:'#FFB8FF',startCol:9, startRow:10},
+  {name:'INKY',  color:'#00FFFF',startCol:10,startRow:10},
+  {name:'CLYDE', color:'#FFB852',startCol:11,startRow:10},
 ]);
 
 class Ghost extends Entity {
   #frightened=false; #eaten=false; #inHouse=true; #leaveTimer=0; #ai; #idx;
-  #scatterTarget;
+  #prevCol=-1; #prevRow=-1;   // tile we just came from — used to ban U-turns
   color; name;
 
-  constructor({name,color,startCol,startRow,scatterTarget,startOutside},idx,speed){
+  constructor({name,color,startCol,startRow},idx,speed){
     const T=CFG.TILE;
-    super(startCol*T+T/2,startRow*T+T/2,speed);
+    // All ghosts start centred inside the ghost house
+    super(startCol*T+T/2, startRow*T+T/2, speed);
     this.name=name; this.color=color; this.#idx=idx;
     this.#ai=AI_FNS[idx];
-    this.#scatterTarget=scatterTarget;
-    if(startOutside){
-      // Blinky: already in the corridor above the house, no house logic needed
+    // Staggered exit delays: Blinky exits immediately, others wait
+    this.#leaveTimer = [0,30,90,150][idx] ?? idx*50;
+    // Blinky starts outside the house already
+    if(idx===0){
       this.#inHouse=false;
-      this.dx=1; this.dy=0;
-      this.#leaveTimer=0;
+      this.x=CFG.TILE*10+CFG.TILE/2;
+      this.y=CFG.TILE*9+CFG.TILE/2;
+      this.dx=-1; this.dy=0;  // immediately moves left
     } else {
-      // Pinky=0 frames, Inky=60 frames (1s), Clyde=120 frames (2s)
-      this.#leaveTimer=[0,60,120,180][idx]; // staggered: Pinky 1s, Inky 2s, Clyde 3s
-      this.dy=-1;
+      // Others bob inside house
+      this.dx=0; this.dy=(idx%2===0)?1:-1;
     }
   }
 
@@ -587,92 +517,129 @@ class Ghost extends Entity {
   get eaten(){return this.#eaten;}
   get inHouse(){return this.#inHouse;}
 
-  setFrightened(on){if(!this.#eaten)this.#frightened=on;}
-  setEaten(){this.#eaten=true;this.#frightened=false;}
-
-  // Classic Pac-Man: reverse on scatter<->chase switch so behaviour is immediately visible
-  reverseDir(){ if(!this.#inHouse&&!this.#eaten){ this.dx=-this.dx; this.dy=-this.dy; } }
+  setFrightened(on){
+    if(this.#eaten) return;
+    // Reverse direction when fright starts (classic Pac-Man behaviour)
+    if(on && !this.#frightened){ this.dx=-this.dx; this.dy=-this.dy; }
+    this.#frightened=on;
+  }
+  setEaten(){this.#eaten=true; this.#frightened=false;}
 
   resetToHouse(){
     this.#eaten=false; this.#inHouse=true; this.#leaveTimer=60;
-    // Reset to centre of pen
+    this.dx=0; this.dy=1;
     this.x=CFG.TILE*10+CFG.TILE/2;
     this.y=CFG.TILE*10+CFG.TILE/2;
-    this.dx=0; this.dy=0;
+    this.#prevCol=-1; this.#prevRow=-1;
   }
 
-  // scatter=true  ? target home corner  (Scatter phase)
-  // scatter=false ? run chase AI        (Chase phase)
-  update(maze, pac, all, frame, scatter=false){
+  update(maze,pac,all,frame){
     const T=CFG.TILE;
-    const spd=this.#eaten?this.speed*2:this.#frightened?this.speed*.5:this.speed;
+    const spd = this.#eaten    ? this.speed*2.2
+              : this.#frightened? this.speed*0.5
+              : this.speed;
 
+    // ── PHASE 1: inside ghost house — bob and wait to leave ──
     if(this.#inHouse){
-      this.#leaveTimer--;
-      this.y+=Math.sin(frame*.12+this.#idx*1.3)*.35;   // bob while waiting
+      if(this.#leaveTimer>0){ this.#leaveTimer--; }
+      // Bob up/down inside house
+      const nextY=this.y+this.dy*spd*0.5;
+      // Clamp bob to house rows 9–11
+      if(nextY<T*9.2 || nextY>T*11.2) this.dy=-this.dy;
+      else this.y=nextY;
+
       if(this.#leaveTimer<=0){
-        this.#inHouse=false;
-        // FIX: row 7 col 10 is an open (EMPTY=0) tile in the corridor above
-        // the ghost house. Previous row 9 ? row 8 path hits map[8][10]=WALL.
-        this.x=T*10+T/2;
-        this.y=T*7+T/2;
-        this.dx=(Math.random()<.5)?-1:1;  // spread left/right on exit
-        this.dy=0;
+        // Navigate to exit tile (col 10, row 9), then leave
+        const exitX=T*10+T/2, exitY=T*9+T/2;
+        // Move toward exit column first
+        if(Math.abs(this.x-exitX)>spd){
+          this.x += this.x<exitX ? spd : -spd;
+        } else {
+          this.x=exitX;
+          // Then move up toward exit row
+          if(this.y>exitY+spd){
+            this.y-=spd;
+          } else {
+            // Exited!
+            this.y=exitY;
+            this.#inHouse=false;
+            this.dx=0; this.dy=-1;   // head upward out of house
+            this.#prevCol=-1; this.#prevRow=-1;
+          }
+        }
       }
       return;
     }
 
+    // ── PHASE 2: returning to house after being eaten ──
     if(this.#eaten){
-      // Target the open corridor ABOVE the ghost house (row 7, col 10).
-      // The house interior (row 10) is blocked by WALL tiles at row 8.
-      // Once the ghost reaches the entrance, resetToHouse() teleports it in.
-      const hx=T*10+T/2, hy=T*7+T/2;
-      if(Math.hypot(this.x-hx,this.y-hy)<spd+1){this.resetToHouse();return;}
+      const hx=T*10+T/2, hy=T*10+T/2;
+      if(Math.hypot(this.x-hx,this.y-hy)<spd+2){ this.resetToHouse(); return; }
+      // Simple line-of-sight navigation back to house
+      const tx=hx-this.x, ty=hy-this.y, dist=Math.hypot(tx,ty);
+      this.x+=tx/dist*spd; this.y+=ty/dist*spd;
+      this._wrapX();
+      return;
     }
 
-    const aligned=Math.abs(this.x-this.tileX)<spd+.5&&Math.abs(this.y-this.tileY)<spd+.5;
-    if(aligned){
-      this.x=this.tileX; this.y=this.tileY;
-      this.#chooseDir(maze,pac,all,scatter);
+    // ── PHASE 3: normal chase/scatter movement ──
+    // Tile-locked grid movement:
+    // Only choose a new direction when we cross a tile centre
+    const col=Math.floor(this.x/T);
+    const row=Math.floor(this.y/T);
+    const tileChanged=(col!==this.#prevCol || row!==this.#prevRow);
+
+    if(tileChanged){
+      this.#prevCol=col; this.#prevRow=row;
+      this.#chooseDir(maze,pac,all,col,row);
     }
-    if(!this._hitsWall(maze,this.x+this.dx*spd,this.y+this.dy*spd)){
-      this.x+=this.dx*spd; this.y+=this.dy*spd;
+
+    // Move in chosen direction — stop at walls
+    const nx=this.x+this.dx*spd;
+    const ny=this.y+this.dy*spd;
+    if(!this._hitsWall(maze,nx,ny)){
+      this.x=nx; this.y=ny;
     } else {
-      // Recover from mid-tile block (e.g. right after exiting house)
-      this.#chooseDir(maze,pac,all,scatter);
+      // Snap to tile centre and pick a new direction immediately
+      this.x=col*T+T/2; this.y=row*T+T/2;
+      this.#chooseDir(maze,pac,all,col,row,true);
     }
     this._wrapX();
   }
 
-  #chooseDir(maze,pac,all,scatter=false){
+  #chooseDir(maze,pac,all,col,row,forceAny=false){
     const T=CFG.TILE;
-    const DIRS=[{dx:1,dy:0},{dx:-1,dy:0},{dx:0,dy:1},{dx:0,dy:-1}];
-    const valid=DIRS.filter(({dx,dy})=>
-      !(dx===-this.dx&&dy===-this.dy)&&
-      !this._hitsWall(maze,this.x+dx*T,this.y+dy*T)
-    );
-    if(!valid.length){
-      const rev=DIRS.find(d=>d.dx===-this.dx&&d.dy===-this.dy);
-      if(rev){this.dx=rev.dx;this.dy=rev.dy;}
-      return;
-    }
-    if(this.#frightened){
-      const p=valid[Math.floor(Math.random()*valid.length)];
-      this.dx=p.dx;this.dy=p.dy;
-      return;
-    }
-    // eaten ? head back to house; scatter ? home corner; chase ? AI target
-    const target=this.#eaten
-      ? {x:CFG.TILE*10+CFG.TILE/2, y:CFG.TILE*7+CFG.TILE/2}  // entrance, not interior
-      : scatter
-        ? this.#scatterTarget
-        : this.#ai(this,pac,all);
+    const ALL_DIRS=[{dx:1,dy:0},{dx:-1,dy:0},{dx:0,dy:1},{dx:0,dy:-1}];
 
+    // Filter: no walls, no U-turn (unless forced)
+    const valid=ALL_DIRS.filter(({dx,dy})=>{
+      if(!forceAny && dx===-this.dx && dy===-this.dy) return false; // no U-turn
+      const nc=col+dx, nr=row+dy;
+      return !maze.isWall(nc,nr);
+    });
+
+    if(!valid.length){
+      // Completely stuck — try U-turn as last resort
+      const uturn=ALL_DIRS.find(d=>d.dx===-this.dx&&d.dy===-this.dy&&!maze.isWall(col+d.dx,row+d.dy));
+      if(uturn){this.dx=uturn.dx;this.dy=uturn.dy;}
+      return;
+    }
+
+    if(this.#frightened){
+      // Random walk when frightened
+      const pick=valid[Math.floor(Math.random()*valid.length)];
+      this.dx=pick.dx; this.dy=pick.dy;
+      return;
+    }
+
+    // Chase / scatter: use scatter corner target during scatter phase
+    const scatterPhase = all.__scatterPhase ?? false;
+    const target = scatterPhase ? SCATTER[this.#idx] : this.#ai(this,pac,all);
     const best=valid.reduce((acc,d)=>{
-      const dist=Math.hypot(this.x+d.dx*T-target.x,this.y+d.dy*T-target.y);
-      return dist<acc.dist?{...d,dist}:acc;
-    },{dist:Infinity});
-    if(best.dist<Infinity){this.dx=best.dx;this.dy=best.dy;}
+      const dist=Math.hypot(col+d.dx-target.x/T, row+d.dy-target.y/T);
+      return dist<acc.dist?{d,dist}:acc;
+    },{dist:Infinity,d:valid[0]});
+    this.dx=best.d.dx; this.dy=best.d.dy;
   }
 
   draw(ctx,globalFrame,frightTimer){
@@ -701,9 +668,9 @@ class Ghost extends Entity {
   }
 }
 
-// ??????????????????????????????????????????????????????????
-// ? 15  HUD
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 15  HUD
+// ══════════════════════════════════════════════════════════
 const HUD={
   setLevel(n){document.getElementById('level').textContent=String(n).padStart(2,'0');},
   setLives(n){document.querySelectorAll('.life-icon').forEach((el,i)=>el.classList.toggle('dead',i>=n));},
@@ -714,52 +681,28 @@ const HUD={
   setReady(on){document.getElementById('ready-text')?.classList.toggle('overlay--hidden',!on);},
   setMuteBtn(muted){
     const btn=document.getElementById('mute-btn');
-    if(btn)btn.textContent=muted?'\u{1F507} MUTED':'\u{1F50A} SOUND';
+    if(btn)btn.textContent=muted?'🔇 MUTED':'🔊 SOUND';
   },
   setActiveFruit(def){
     if(!def){
-      document.getElementById('active-fruit-icon').textContent='\u00B7';
-      document.getElementById('active-fruit-name').textContent='\u2014';
+      document.getElementById('active-fruit-icon').textContent='·';
+      document.getElementById('active-fruit-name').textContent='—';
       document.getElementById('active-fruit-pts').textContent='';
       return;
     }
+    const iconMap={orange:'🟠'};
+    const icon=iconMap[def.id]||def.emoji||def.name[0];
     const pts=def.basePoints*def.mult;
-    document.getElementById('active-fruit-icon').textContent=def.emoji||def.name[0];
-    document.getElementById('active-fruit-name').textContent=def.name+(def.mult>1?` \u00D7${def.mult}!`:'');
+    document.getElementById('active-fruit-icon').textContent=icon;
+    document.getElementById('active-fruit-name').textContent=def.name+(def.mult>1?` ×${def.mult}!`:'');
     document.getElementById('active-fruit-pts').textContent=`${pts} PTS`;
     document.getElementById('active-fruit-icon').style.color=def.id==='peach'?'#FFAB76':'';
   },
 };
 
-// ??????????????????????????????????????????????????????????
-// ? 16  SCATTER / CHASE SCHEDULE
-//
-// Classic Pac-Man alternates scatter and chase in a fixed phase sequence.
-// Durations in frames (?60 fps).
-//   Level 1:  S7 C20 S7 C20 S5 C20 S5 C?
-//   Level 2+: shorter scatter windows
-// ??????????????????????????????????????????????????????????
-function buildModeSchedule(level){
-  const s7=420, s5=300, s1=60, c20=1200, cInf=Number.MAX_SAFE_INTEGER;
-  if(level===1){
-    return [
-      {scatter:true, dur:s7},{scatter:false,dur:c20},
-      {scatter:true, dur:s7},{scatter:false,dur:c20},
-      {scatter:true, dur:s5},{scatter:false,dur:c20},
-      {scatter:true, dur:s5},{scatter:false,dur:cInf},
-    ];
-  }
-  return [
-    {scatter:true, dur:s5},{scatter:false,dur:c20},
-    {scatter:true, dur:s5},{scatter:false,dur:c20},
-    {scatter:true, dur:s5},{scatter:false,dur:c20},
-    {scatter:true, dur:s1},{scatter:false,dur:cInf},
-  ];
-}
-
-// ??????????????????????????????????????????????????????????
-// ? 17  GAME \u2014 state machine
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
+// § 16  GAME — state machine
+// ══════════════════════════════════════════════════════════
 class Game {
   #canvas; #ctx;
   #maze   = new Maze();
@@ -778,21 +721,10 @@ class Game {
   #dotEatenCount = 0;
   #fruit1Spawned = false;
   #fruit2Spawned = false;
-  #sirenFast     = false;
-
-  // Scatter/chase mode
-  #modeSchedule = [];
-  #modePhase    = 0;
-  #modeTimer    = 0;
-  #scatterMode  = true;
-
-  // Level countdown timer (frames)
-  #levelTimer     = 0;
-  #levelTimeLimit = 0;
-  // Frame-based level-clear transition (replaces setTimeout)
-  #levelClearTimer = 0;
-  // TIME UP flash counter
-  #timeUpFlash     = 0;
+  #sirenFast     = false;   // track whether we've already called sirenFast
+  #phaseTimer    = 0;       // scatter/chase phase frame counter
+  #phaseIdx      = 0;       // index into PHASE_TIMES
+  #scatterPhase  = true;    // true=scatter, false=chase
 
   constructor(canvasId){
     this.#canvas=document.getElementById(canvasId);
@@ -808,13 +740,13 @@ class Game {
 
   #setState(s){this.#state=s;bus.emit('state:change',s);}
 
-  // ?? START / INIT ????????????????????????????????????????
+  // ── START / INIT ────────────────────────────────────────
   startGame(){
     HUD.hide('overlay-start'); HUD.hide('overlay-gameover');
     this.#score.reset(); this.#level=1; this.#lives=3;
     HUD.setLevel(1); HUD.setLives(3);
     this.#initLevel();
-    snd.start();
+    snd.start();   // 🎵 Opening jingle on every new game
   }
 
   #initLevel(){
@@ -826,27 +758,18 @@ class Game {
     this.#popups=[]; this.#bonus=null; this.#frightTimer=0;
     this.#dotEatenCount=0; this.#fruit1Spawned=false; this.#fruit2Spawned=false;
     this.#sirenFast=false;
+    this.#phaseTimer=0;
+    this.#phaseIdx=0;
+    this.#scatterPhase=true;
     this.#score.resetGhostMul();
-
-    // Build and start scatter/chase schedule for this level
-    this.#modeSchedule=buildModeSchedule(this.#level);
-    this.#modePhase=0;
-    this.#scatterMode=this.#modeSchedule[0].scatter;
-    this.#modeTimer=this.#modeSchedule[0].dur;
-
-    // Level countdown: 120s on L1, shrinks by 10s per level, min 45s
-    this.#levelTimeLimit = Math.max(45, 120 - (this.#level-1)*10) * 60;
-    this.#levelTimer     = this.#levelTimeLimit;
-    this.#timeUpFlash    = 0;
-
     this.#setState(STATE.READY);
     this.#readyTimer=CFG.READY_FRAMES;
     HUD.setReady(true); HUD.setActiveFruit(null);
-    snd.sirenStop();
+    snd.sirenStop();    // clear any old siren before ready phase
     snd.frightStop();
   }
 
-  // ?? MAIN LOOP ???????????????????????????????????????????
+  // ── MAIN LOOP ───────────────────────────────────────────
   #loop=()=>{this.#update();this.#draw();requestAnimationFrame(this.#loop);};
 
   #update(){
@@ -856,7 +779,7 @@ class Game {
         if(--this.#readyTimer<=0){
           this.#setState(STATE.PLAYING);
           HUD.setReady(false);
-          snd.sirenStart();
+          snd.sirenStart();   // 🎵 Siren starts when play begins
         }
         break;
       case STATE.PLAYING:
@@ -866,53 +789,29 @@ class Game {
         this.#pac.deathFrame++;
         if(--this.#deathTimer<=0) this.#handleDeath();
         break;
-      case STATE.TIMEOUT:
-        // Flash TIME UP for 2 seconds then lose a life
-        if(++this.#timeUpFlash>=120) this.#handleDeath();
-        break;
-      case STATE.LEVELCLEAR:
-        // Auto-advance after ~2.4 s (144 frames)
-        if(--this.#levelClearTimer<=0){
-          HUD.hide('overlay-levelclear');
-          this.#level++;
-          HUD.setLevel(this.#level);
-          this.#initLevel();
-        }
-        break;
     }
     this.#popups=this.#popups.filter(p=>{p.update();return p.alive;});
   }
 
-  // ?? SCATTER / CHASE PHASE TIMER ?????????????????????????
-  #tickModeTimer(){
-    if(this.#frightTimer>0) return;   // pause cycle while frightened
-    if(--this.#modeTimer<=0){
-      const next=this.#modePhase+1;
-      if(next<this.#modeSchedule.length){
-        this.#modePhase=next;
-        const ph=this.#modeSchedule[next];
-        const changed=(ph.scatter!==this.#scatterMode);
-        this.#scatterMode=ph.scatter;
-        this.#modeTimer=ph.dur;
-        // Classic behaviour: all free ghosts immediately reverse on mode switch
-        if(changed) this.#ghosts.forEach(g=>g.reverseDir());
-      } else {
-        this.#scatterMode=false;
-        this.#modeTimer=Number.MAX_SAFE_INTEGER;
+  #updatePlaying(){
+    // ── Scatter/chase phase timer ──
+    if(this.#frightTimer===0){
+      this.#phaseTimer++;
+      const limit=PHASE_TIMES[this.#phaseIdx]??Infinity;
+      if(this.#phaseTimer>=limit){
+        this.#phaseTimer=0;
+        this.#phaseIdx++;
+        this.#scatterPhase=!this.#scatterPhase;
+        // Ghosts reverse direction on phase switch (classic rule)
+        this.#ghosts.forEach(g=>{if(!g.inHouse&&!g.eaten){g.dx=-g.dx;g.dy=-g.dy;}});
       }
     }
-  }
 
-  #updatePlaying(){
-    this.#tickModeTimer();
-
-    // Level countdown
-    if(--this.#levelTimer<=0) { this.#triggerTimeout(); return; }
-
-    // Fright timer
+    // ── Fright timer countdown ──
     if(this.#frightTimer>0){
       this.#frightTimer--;
       if(this.#frightTimer===0){
+        // 🎵 Fright ends — stop warble, resume siren
         this.#ghosts.forEach(g=>g.setFrightened(false));
         snd.frightStop();
         snd.sirenStart();
@@ -921,14 +820,16 @@ class Game {
 
     this.#pac.update(this.#maze);
 
-    // Eat dot / power pellet
+    // ── Eat dot / power ──
     const eaten=this.#maze.eat(this.#pac.col,this.#pac.row);
     if(eaten==='dot'){
       this.#score.add(CFG.SCORE.DOT);
       this.#dotEatenCount++;
       this.#checkFruitSpawn();
-      snd.waka();
-      if(!this.#sirenFast&&this.#maze.dotsLeft<30&&this.#frightTimer===0){
+      snd.waka();   // 🎵 Waka chomp
+
+      // 🎵 Speed up siren when fewer than 30 dots remain
+      if(!this.#sirenFast && this.#maze.dotsLeft<30 && this.#frightTimer===0){
         this.#sirenFast=true;
         snd.sirenFast();
       }
@@ -938,39 +839,32 @@ class Game {
       this.#frightTimer=dur;
       this.#score.resetGhostMul();
       this.#ghosts.forEach(g=>g.setFrightened(true));
-      snd.power();
-      snd.sirenStop();
-      snd.frightStart();
+      snd.power();        // 🎵 Power pellet sound
+      snd.sirenStop();    // 🎵 Stop siren during fright
+      snd.frightStart();  // 🎵 Start fright warble
     }
 
-    // Bonus fruit \u2014 update every frame (not just while alive) so fade-out animates
-    if(this.#bonus){
+    // ── Bonus fruit update + collection ──
+    if(this.#bonus?.alive){
       this.#bonus.update();
-      if(this.#bonus.alive){
-        const dist=Math.hypot(this.#bonus.x-this.#pac.x,this.#bonus.y-this.#pac.y);
-        if(dist<CFG.TILE*.8){
-          const def=this.#bonus.def, pts=def.basePoints*def.mult;
-          this.#score.add(pts);
-          this.#popups.push(new ScorePopup(this.#bonus.x,this.#bonus.y,pts,def.mult>1));
-          this.#bonus.collect();
-          HUD.setActiveFruit(null);
-          snd.fruit(def.id==='peach');
-        }
-      } else if(!this.#bonus.collected){
-        // Timed out without being eaten
-        HUD.setActiveFruit(null); this.#bonus=null;
-      } else if(this.#bonus.fadeComplete){
-        // Fade animation finished \u2014 remove from scene
-        this.#bonus=null;
+      const dist=Math.hypot(this.#bonus.x-this.#pac.x,this.#bonus.y-this.#pac.y);
+      if(dist<CFG.TILE*.8){
+        const def=this.#bonus.def, pts=def.basePoints*def.mult;
+        this.#score.add(pts);
+        this.#popups.push(new ScorePopup(this.#bonus.x,this.#bonus.y,pts,def.mult>1));
+        this.#bonus.collect();
+        HUD.setActiveFruit(null);
+        snd.fruit(def.id==='peach');  // 🎵 Fruit sound (peach = shimmer trill)
       }
+    } else if(this.#bonus&&!this.#bonus.alive&&!this.#bonus.collected){
+      HUD.setActiveFruit(null); this.#bonus=null;
     }
 
-    // Ghost updates \u2014 pass current scatter mode flag
-    this.#ghosts.forEach(g=>
-      g.update(this.#maze,this.#pac,this.#ghosts,this.#frame,this.#scatterMode)
-    );
+    // ── Ghost updates ──
+    this.#ghosts.__scatterPhase=this.#scatterPhase;
+    this.#ghosts.forEach(g=>g.update(this.#maze,this.#pac,this.#ghosts,this.#frame));
 
-    // Collision
+    // ── Collision detection ──
     for(const ghost of this.#ghosts){
       const dist=Math.hypot(ghost.x-this.#pac.x,ghost.y-this.#pac.y);
       if(dist>=CFG.TILE*.75) continue;
@@ -979,17 +873,19 @@ class Game {
         const pts=this.#score.ghostEaten();
         ghost.setEaten();
         this.#popups.push(new ScorePopup(ghost.x,ghost.y,pts));
-        snd.ghost(this.#score.ghostMul);
+        snd.ghost(this.#score.ghostMul);  // 🎵 Ghost eaten (pitch rises per ghost)
+        // If all ghosts eaten, restart fright sound
         const anyFrightened=this.#ghosts.some(g=>g.frightened);
-        if(!anyFrightened){snd.frightStop();snd.sirenStart();}
+        if(!anyFrightened){ snd.frightStop(); snd.sirenStart(); }
       } else if(!ghost.eaten&&!ghost.inHouse){
+        // 🎵 Pac-Man hit — stop everything, start death
         snd.sirenStop();
         snd.frightStop();
         this.#setState(STATE.DYING);
         this.#deathTimer=CFG.DEATH_FRAMES;
         this.#pac.deathFrame=0;
         HUD.setReady(false);
-        snd.death();
+        snd.death();  // 🎵 Death fanfare
         return;
       }
     }
@@ -997,10 +893,9 @@ class Game {
     if(this.#maze.cleared) this.#triggerLevelClear();
   }
 
-  // ?? FRUIT SPAWN ?????????????????????????????????????????
-  // Spawn position: col 10, row 16 = EMPTY (0) in BASE_MAP.
+  // ── FRUIT SPAWN ─────────────────────────────────────────
   #checkFruitSpawn(){
-    const T=CFG.TILE, spawnX=10*T+T/2, spawnY=16*T+T/2;
+    const T=CFG.TILE, spawnX=10*T+T/2, spawnY=17*T+T/2;
     if(!this.#fruit1Spawned&&this.#dotEatenCount>=70){
       this.#fruit1Spawned=true; this.#spawnFruit(spawnX,spawnY);
     } else if(!this.#fruit2Spawned&&this.#dotEatenCount>=170){
@@ -1014,7 +909,7 @@ class Game {
     HUD.setActiveFruit(def);
   }
 
-  // ?? DEATH / GAME OVER / LEVEL CLEAR ????????????????????
+  // ── DEATH / GAME OVER / LEVEL CLEAR ────────────────────
   #handleDeath(){
     this.#lives--;
     HUD.setLives(this.#lives);
@@ -1025,26 +920,23 @@ class Game {
     }
   }
 
-  #triggerTimeout(){
-    snd.sirenStop();
-    snd.frightStop();
-    snd.timeUp();
-    this.#setState(STATE.TIMEOUT);
-    this.#timeUpFlash = 0;
-  }
-
   #triggerLevelClear(){
     this.#setState(STATE.LEVELCLEAR);
-    snd.sirenStop();
+    snd.sirenStop();    // 🎵 Stop siren
     snd.frightStop();
-    snd.levelClear();
+    snd.levelClear();   // 🎵 Level clear fanfare
     HUD.show('overlay-levelclear');
-    this.#levelClearTimer = 144; // ~2.4 s at 60 fps \u2014 game loop counts it down
+    setTimeout(()=>{
+      HUD.hide('overlay-levelclear');
+      this.#level++;
+      HUD.setLevel(this.#level);
+      this.#initLevel();
+    }, 2400);
   }
 
   #triggerGameOver(){
     this.#setState(STATE.GAMEOVER);
-    snd.sirenStop();
+    snd.sirenStop();   // 🎵 Ensure all sounds stopped
     snd.frightStop();
     HUD.setFinalScore(this.#score.score);
     const msgs=TRIBUTE.gameoverMessages;
@@ -1052,7 +944,7 @@ class Game {
     HUD.show('overlay-gameover');
   }
 
-  // ?? DRAW ????????????????????????????????????????????????
+  // ── DRAW ────────────────────────────────────────────────
   #draw(){
     const ctx=this.#ctx;
     ctx.fillStyle='#000008';
@@ -1060,70 +952,30 @@ class Game {
     this.#maze.draw(ctx,this.#frame);
 
     if(this.#state!==STATE.IDLE&&this.#state!==STATE.GAMEOVER){
-      const dying=this.#state===STATE.DYING||this.#state===STATE.TIMEOUT;
-      if(!dying||this.#pac.deathFrame<75) this.#pac.draw(ctx,this.#frame,this.#state===STATE.DYING);
+      const dying=this.#state===STATE.DYING;
+      if(!dying||this.#pac.deathFrame<75) this.#pac.draw(ctx,this.#frame,dying);
       this.#bonus?.draw(ctx,this.#frame);
       this.#ghosts.forEach(g=>g.draw(ctx,this.#frame,this.#frightTimer));
       this.#popups.forEach(p=>p.draw(ctx));
     }
 
-    // Level timer bar (bottom of canvas)
-    if(this.#state===STATE.PLAYING||this.#state===STATE.READY){
-      const pct  = this.#levelTimer / this.#levelTimeLimit;
-      const bw   = this.#canvas.width;
-      const bh   = 5;
-      const by   = this.#canvas.height - bh;
-      ctx.fillStyle='#111';
-      ctx.fillRect(0, by, bw, bh);
-      // Colour: green -> yellow -> red
-      const barColor = pct>0.5?'#00DD44':pct>0.25?'#FFCC00':'#FF2222';
-      ctx.fillStyle  = barColor;
-      ctx.fillRect(0, by, bw*pct, bh);
-      // Seconds label when below 30s
-      const secs = Math.ceil(this.#levelTimer/60);
-      if(secs<=30){
-        const flash = secs<=10 && Math.floor(this.#frame/15)%2===0;
-        ctx.save();
-        ctx.globalAlpha = flash?0.4:1;
-        ctx.fillStyle   = secs<=10?'#FF4444':'#FFCC00';
-        ctx.font        = '7px "Press Start 2P"';
-        ctx.textAlign   = 'right';
-        ctx.textBaseline= 'bottom';
-        ctx.fillText(`${secs}s`, bw-3, by-1);
-        ctx.restore();
-      }
-    }
-
-    // TIME UP flash overlay
-    if(this.#state===STATE.TIMEOUT){
-      const alpha=0.7*Math.abs(Math.sin(this.#timeUpFlash*0.13));
-      ctx.save();
-      ctx.globalAlpha=alpha;
-      ctx.fillStyle='#FF2222';
-      ctx.font='bold 14px "Press Start 2P"';
-      ctx.textAlign='center'; ctx.textBaseline='middle';
-      ctx.shadowColor='#FF0000'; ctx.shadowBlur=20;
-      ctx.fillText('TIME UP!',this.#canvas.width/2,this.#canvas.height/2);
-      ctx.restore();
-    }
-
-    // BABS / Ms. Pac-Man watermark
+    // BABS watermark
     if(this.#state===STATE.PLAYING){
       const cycle=this.#frame%700;
       if(cycle<140){
         const alpha=Math.sin((cycle/140)*Math.PI)*.055;
         ctx.save(); ctx.globalAlpha=alpha;
-        ctx.fillStyle='#FF88BB'; ctx.font='bold 18px "Press Start 2P"';
+        ctx.fillStyle='#FFAB76'; ctx.font='bold 18px "Press Start 2P"';
         ctx.textAlign='center'; ctx.textBaseline='middle';
-        ctx.fillText('MS. BABS',this.#canvas.width/2,this.#canvas.height/2-10);
+        ctx.fillText('B A B S',this.#canvas.width/2,this.#canvas.height/2-10);
         ctx.font='12px "Playfair Display"'; ctx.fillStyle='#FFD4B0';
-        ctx.fillText('Georgia Peach \u{1F351}',this.#canvas.width/2,this.#canvas.height/2+14);
+        ctx.fillText('Georgia Peach 🍑',this.#canvas.width/2,this.#canvas.height/2+14);
         ctx.restore();
       }
     }
   }
 
-  // ?? INPUT ???????????????????????????????????????????????
+  // ── INPUT ───────────────────────────────────────────────
   #bindInput(){
     const keyMap=new Map([
       ['ArrowLeft',[-1,0]],['a',[-1,0]],['ArrowRight',[1,0]],['d',[1,0]],
@@ -1134,8 +986,9 @@ class Game {
     };
     document.addEventListener('keydown',e=>{
       if(e.key==='Enter'||e.key===' '){tryStart();return;}
+      // M key = mute toggle
       if(e.key==='m'||e.key==='M'){
-        const muted=snd.toggleMute();
+        const muted=snd.toggleMute();  // 🎵 Mute toggle via M key
         HUD.setMuteBtn(muted);
         return;
       }
@@ -1144,11 +997,13 @@ class Game {
       if(dir){const[dx,dy]=dir;this.#pac.setDir(dx,dy);e.preventDefault();}
     });
 
+    // Mute button click
     document.getElementById('mute-btn')?.addEventListener('click',()=>{
       const muted=snd.toggleMute();
       HUD.setMuteBtn(muted);
     });
 
+    // D-pad touch
     Object.entries({'dpad-up':[0,-1],'dpad-down':[0,1],'dpad-left':[-1,0],'dpad-right':[1,0]})
       .forEach(([id,[dx,dy]])=>{
         document.getElementById(id)?.addEventListener('touchstart',e=>{
@@ -1157,6 +1012,7 @@ class Game {
         },{passive:false});
       });
 
+    // Swipe
     let sx=0,sy=0;
     this.#canvas.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;tryStart();},{passive:true});
     this.#canvas.addEventListener('touchend',e=>{
@@ -1166,12 +1022,13 @@ class Game {
     },{passive:true});
   }
 
+  // Public mute accessor for window.__babs__
   toggleMute(){ const m=snd.toggleMute(); HUD.setMuteBtn(m); return m; }
 }
 
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
 // SPLASH + BOOT
-// ??????????????????????????????????????????????????????????
+// ══════════════════════════════════════════════════════════
 const splash=document.getElementById('splash');
 const dismissSplash=()=>{
   splash.classList.add('fade-out');
