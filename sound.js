@@ -1,310 +1,312 @@
 /**
- * sound.js  --  Ms. Pac-Man "Georgia Peach Edition"
- * Web Audio API synthesis only.  No external audio files.
+ * sound.js — BABS' PAC-MAN Georgia Peach Edition
+ * ─────────────────────────────────────────────────────────────────────────
+ * Loads WAV files from assets/sounds/.  Falls back to Web Audio synthesis
+ * automatically if any file is missing.
  *
- * LOOP ARCHITECTURE (v4 -- persistent osc + gain cancellation):
+ * WAV files (put in assets/sounds/):
+ *   start.wav  waka.wav  power.wav  eat-ghost.wav  fruit.wav  death.wav
  *
- *   Previous versions had one of two problems:
- *     a) setInterval-spawned nodes \u2192 node churn \u2192 audio glitch clicks
- *     b) rAF with 300ms lookahead \u2192 cancelAnimationFrame doesn't cancel
- *        already-scheduled gain automation \u2192 siren "hangs" 300ms after stop
+ * Continuous loops (always synthesised):
+ *   sirenStart() / sirenFast() / sirenStop()
+ *   frightStart() / frightStop()
  *
- *   v4 solution:
- *     - ONE persistent OscillatorNode per loop sound, running forever at gain=0
- *     - A rAF scheduler pre-fills only 150ms ahead (short window)
- *     - On stop():  cancelAnimationFrame  +  gain.cancelScheduledValues(now)
- *                   +  gain.setValueAtTime(0, now)
- *       The cancelScheduledValues() wipes any pre-buffered gain automation
- *       instantly \u2192 zero tail, zero glitch.
- *     - No oscillator nodes are ever created/destroyed during play.
+ * Loop design: one persistent OscillatorNode per loop at gain=0 when silent.
+ * rAF scheduler fills 120ms ahead.
+ * sirenFast() raises frequency table AND cuts step time 88ms→52ms.
+ * Stop = cancelAnimationFrame + gain.cancelScheduledValues → instant silence.
+ *
+ * Exposed as window.SOUND — no ES-module import needed.
  */
+window.SOUND = (() => {
+  let ctx=null, master=null, muted=false;
 
-class ArcadeSound {
-  #ctx    = null;
-  #master = null;   // master GainNode
-  #muted  = false;
+  // WAV buffers
+  const buf = {start:null,waka:null,power:null,ghost:null,fruit:null,death:null};
 
-  // Siren (sawtooth, persistent)
-  #sirOsc  = null;
-  #sirGain = null;
-  #sirRaf  = null;
-  #sirStep = 0;
-  #sirNext = 0;
-  #sirFast = false;
+  // Siren state
+  let sirOsc=null,sirGain=null,sirRaf=null,sirStep=0,sirNext=0,sirFast=false;
 
-  // Fright warble (square, persistent)
-  #frtOsc  = null;
-  #frtGain = null;
-  #frtRaf  = null;
-  #frtStep = 0;
-  #frtNext = 0;
+  // Fright state
+  let frtOsc=null,frtGain=null,frtRaf=null,frtStep=0,frtNext=0;
 
-  #wakaFlip = false;
+  let wakaFlip=false;
 
   // Frequency tables
-  static #SIR_SLOW  = [200,213,226,240,253,240,226,213];
-  static #SIR_FAST  = [268,286,302,320,336,320,302,286];
-  static #FRT_TABLE = [138,156,142,165,149,170,144,160];
+  const SIR_SLOW=[200,210,221,233,246,233,221,210];
+  const SIR_FAST=[262,277,294,311,330,311,294,277];
+  const FRT_TBL =[138,156,142,165,149,170,144,160];
 
-  // ----------------------------------------------------------------- boot ---
-  #boot() {
-    if (this.#ctx) {
-      if (this.#ctx.state === 'suspended') this.#ctx.resume();
-      return;
-    }
-    this.#ctx    = new (window.AudioContext || window.webkitAudioContext)();
-    this.#master = this.#ctx.createGain();
-    this.#master.gain.value = 0.28;
-    this.#master.connect(this.#ctx.destination);
+  // ── AudioContext boot ──────────────────────────────────────────────────
+  function boot(){
+    if(ctx){if(ctx.state==='suspended')ctx.resume();return;}
+    ctx=new(window.AudioContext||window.webkitAudioContext)();
+    master=ctx.createGain();master.gain.value=0.30;
+    master.connect(ctx.destination);
+    loadWavs();
   }
 
-  // ---------------------------------------------------------------- notes ---
-  // One-shot disposable oscillator \u2014 auto-cleans-up via osc.stop()
-  #note(freq, dur, vol = 0.20, shape = 'square', at = null) {
-    if (this.#muted || !this.#ctx) return;
-    const t   = at ?? this.#ctx.currentTime;
-    const osc = this.#ctx.createOscillator();
-    const env = this.#ctx.createGain();
-    osc.type  = shape;
-    osc.frequency.setValueAtTime(freq, t);
-    env.gain.setValueAtTime(vol, t);
-    env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(env); env.connect(this.#master);
-    osc.start(t); osc.stop(t + dur + 0.015);
-  }
-
-  #seq(notes, startAt = null) {
-    if (this.#muted || !this.#ctx) return;
-    let t = startAt ?? (this.#ctx.currentTime + 0.04);
-    for (const { f, d, v = 0.20, shape = 'square' } of notes) {
-      if (f > 0) this.#note(f, d, v, shape, t);
-      t += d + 0.005;
+  function loadWavs(){
+    const FILES={
+      start:'assets/sounds/start.wav',waka:'assets/sounds/waka.wav',
+      power:'assets/sounds/power.wav',ghost:'assets/sounds/eat-ghost.wav',
+      fruit:'assets/sounds/fruit.wav',death:'assets/sounds/death.wav',
+    };
+    for(const[k,url]of Object.entries(FILES)){
+      fetch(url).then(r=>{if(!r.ok)throw 0;return r.arrayBuffer();})
+        .then(ab=>ctx.decodeAudioData(ab)).then(d=>{buf[k]=d;})
+        .catch(()=>{});
     }
   }
 
-  // ======================================================= ONE-SHOT SOUNDS
-
-  /** Intro jingle at game start. */
-  start() {
-    this.#boot();
-    if (this.#muted) return;
-    this.#seq([
-      { f: 494, d: 0.08 }, { f: 0,   d: 0.03 },
-      { f: 587, d: 0.08 }, { f: 0,   d: 0.03 },
-      { f: 698, d: 0.08 }, { f: 0,   d: 0.03 },
-      { f: 784, d: 0.15 }, { f: 0,   d: 0.04 },
-      { f: 698, d: 0.08 },
-      { f: 784, d: 0.22 }, { f: 0,   d: 0.06 },
-      { f: 740, d: 0.08 }, { f: 0,   d: 0.03 },
-      { f: 659, d: 0.08 }, { f: 0,   d: 0.03 },
-      { f: 587, d: 0.08 }, { f: 0,   d: 0.03 },
-      { f: 523, d: 0.08 }, { f: 0,   d: 0.03 },
-      { f: 494, d: 0.08 }, { f: 0,   d: 0.03 },
-      { f: 440, d: 0.30 },
-    ]);
+  // ── Synth primitives ───────────────────────────────────────────────────
+  function note(freq,dur,vol=0.20,shape='square',at=null){
+    if(muted||!ctx)return;
+    const t=at??ctx.currentTime;
+    const osc=ctx.createOscillator(),env=ctx.createGain();
+    osc.type=shape;osc.frequency.setValueAtTime(freq,t);
+    env.gain.setValueAtTime(vol,t);
+    env.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    osc.connect(env);env.connect(master);osc.start(t);osc.stop(t+dur+0.015);
   }
 
-  /** Alternating two-tone waka per dot eaten. */
-  waka() {
-    this.#boot();
-    if (this.#muted) return;
-    this.#note(this.#wakaFlip ? 410 : 290, 0.058, 0.16, 'square');
-    this.#wakaFlip = !this.#wakaFlip;
+  function seq(notes,at=null){
+    if(muted||!ctx)return;
+    let t=at??(ctx.currentTime+0.04);
+    for(const{f,d,v=0.20,s='square'}of notes){
+      if(f>0)note(f,d,v,s,t);t+=d+0.005;
+    }
   }
 
-  /** Descending sweep on power pellet. */
-  power() {
-    this.#boot();
-    if (this.#muted || !this.#ctx) return;
-    const now = this.#ctx.currentTime;
-    const osc = this.#ctx.createOscillator();
-    const env = this.#ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(900, now);
-    osc.frequency.exponentialRampToValueAtTime(80, now + 0.44);
-    env.gain.setValueAtTime(0.24, now);
-    env.gain.exponentialRampToValueAtTime(0.0001, now + 0.44);
-    osc.connect(env); env.connect(this.#master);
-    osc.start(now); osc.stop(now + 0.46);
+  // ── Play WAV or fallback ───────────────────────────────────────────────
+  function wav(key,fb,vol=1.0){
+    if(muted||!ctx)return;
+    if(buf[key]){
+      const src=ctx.createBufferSource(),g=ctx.createGain();
+      src.buffer=buf[key];g.gain.value=vol;
+      src.connect(g);g.connect(master);src.start();
+    } else { fb(); }
   }
 
-  /** 4-note ascending chord when ghost eaten; pitch scales with combo. */
-  ghost(mul = 1) {
-    this.#boot();
-    if (this.#muted) return;
-    const base = Math.min(110 * mul, 880);
-    const now  = this.#ctx.currentTime;
-    [[base,0.09],[base*1.5,0.09],[base*2,0.09],[base*3,0.14]]
-      .forEach(([f, d], i) => this.#note(f, d, 0.20, 'square', now + i * 0.085));
+  // ════════════════════════ ONE-SHOT SOUNDS ════════════════════════════
+
+  function start(){
+    boot();
+    wav('start',()=>seq([
+      {f:494,d:0.09},{f:0,d:0.03},{f:370,d:0.07},{f:0,d:0.02},
+      {f:311,d:0.07},{f:0,d:0.02},{f:330,d:0.07},{f:0,d:0.02},
+      {f:494,d:0.09},{f:0,d:0.03},{f:370,d:0.15},{f:0,d:0.05},
+      {f:494,d:0.09},{f:0,d:0.03},{f:370,d:0.07},{f:0,d:0.02},
+      {f:311,d:0.07},{f:0,d:0.02},{f:330,d:0.07},{f:0,d:0.02},
+      {f:494,d:0.20},{f:0,d:0.06},
+      {f:587,d:0.08},{f:698,d:0.08},{f:784,d:0.08},{f:988,d:0.22},
+    ]));
   }
 
-  /** 16-step descending crash on death. */
-  death() {
-    this.#boot();
-    if (this.#muted) return;
-    const now = this.#ctx.currentTime;
-    [960,900,840,780,720,660,600,540,480,420,360,300,240,180,120,80]
-      .forEach((f, i) => this.#note(f, 0.082, 0.24, 'square', now + i * 0.078));
-  }
-
-  /** Ascending fanfare on level clear. */
-  levelClear() {
-    this.#boot();
-    if (this.#muted) return;
-    this.#seq([
-      { f: 523,  d: 0.10 }, { f: 659,  d: 0.10 },
-      { f: 784,  d: 0.10 }, { f: 1047, d: 0.10 },
-      { f: 784,  d: 0.06 }, { f: 880,  d: 0.06 },
-      { f: 1047, d: 0.34 },
-    ]);
-  }
-
-  /** Fruit collected \u2014 peach gets extra sparkle. */
-  fruit(isPeach = false) {
-    this.#boot();
-    if (this.#muted) return;
-    if (isPeach) {
-      this.#seq([
-        { f: 523, d: 0.07 }, { f: 659, d: 0.07 }, { f: 784,  d: 0.07 },
-        { f:1047, d: 0.07 }, { f:1319, d: 0.07 }, { f:1568,  d: 0.15 },
-      ]);
+  function waka(){
+    boot();if(muted)return;
+    if(buf.waka){
+      const src=ctx.createBufferSource(),g=ctx.createGain();
+      src.buffer=buf.waka;
+      // Alternating playback rate = waka-waka pitch variation from ONE file
+      src.playbackRate.value=wakaFlip?1.0:1.28;
+      g.gain.value=0.80;src.connect(g);g.connect(master);src.start();
     } else {
-      this.#seq([{ f:659,d:0.09 },{ f:784,d:0.09 },{ f:1047,d:0.14 }]);
+      note(wakaFlip?440:330,0.058,0.16,'square');
+    }
+    wakaFlip=!wakaFlip;
+  }
+
+  function power(){
+    boot();
+    wav('power',()=>{
+      if(!ctx)return;
+      const now=ctx.currentTime;
+      const osc=ctx.createOscillator(),env=ctx.createGain();
+      osc.type='square';
+      osc.frequency.setValueAtTime(150,now);
+      osc.frequency.exponentialRampToValueAtTime(850,now+0.35);
+      env.gain.setValueAtTime(0.24,now);
+      env.gain.exponentialRampToValueAtTime(0.0001,now+0.35);
+      osc.connect(env);env.connect(master);osc.start(now);osc.stop(now+0.37);
+    });
+  }
+
+  function ghost(mul=1){
+    boot();
+    wav('ghost',()=>{
+      if(!ctx)return;
+      const base=Math.min(110*mul,880),now=ctx.currentTime;
+      [[base,0.09],[base*1.5,0.09],[base*2,0.09],[base*3,0.14]]
+        .forEach(([f,d],i)=>note(f,d,0.20,'square',now+i*0.085));
+    });
+  }
+
+  function fruit(isPeach=false){
+    boot();
+    wav('fruit',()=>{
+      if(isPeach){
+        seq([{f:523,d:0.07},{f:659,d:0.07},{f:784,d:0.07},
+             {f:1047,d:0.07},{f:1319,d:0.07},{f:1568,d:0.15}]);
+      } else {
+        seq([{f:659,d:0.09},{f:784,d:0.09},{f:1047,d:0.14}]);
+      }
+    });
+    // Peach shimmer added even when WAV plays
+    if(isPeach&&buf.fruit&&ctx&&!muted){
+      seq([{f:1319,d:0.07},{f:1568,d:0.07},{f:2093,d:0.14}],
+          ctx.currentTime+0.32);
     }
   }
 
-  /** Danger sting when level timer expires. */
-  timeUp() {
-    this.#boot();
-    if (this.#muted) return;
-    const now = this.#ctx.currentTime;
-    [[880,0.12],[698,0.12],[587,0.12],[440,0.26]]
-      .forEach(([f, d], i) => this.#note(f, d, 0.26, 'square', now + i * 0.13));
+  function death(){
+    boot();
+    wav('death',()=>{
+      if(!ctx)return;
+      const now=ctx.currentTime;
+      [960,900,840,780,720,660,600,540,480,420,360,300,240,185,140,80]
+        .forEach((f,i)=>note(f,0.082,0.24,'sawtooth',now+i*0.078));
+    });
   }
 
-  // ======================================================= CONTINUOUS LOOPS
-  //
-  // Design: ONE OscillatorNode per loop, started once, runs at gain=0.
-  // A rAF scheduler fills only 150ms of gain automation ahead.
-  // Stop = cancelAnimationFrame + gain.cancelScheduledValues() + gain=0.
-  // This gives TRUE instant silence with zero node creation/destruction.
-
-  // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 SIREN helpers
-  #makeSiren() {
-    if (this.#sirOsc) return;   // already exists
-    this.#sirOsc  = this.#ctx.createOscillator();
-    this.#sirGain = this.#ctx.createGain();
-    this.#sirOsc.type = 'sawtooth';
-    this.#sirOsc.frequency.value = 200;
-    this.#sirGain.gain.value = 0;
-    this.#sirOsc.connect(this.#sirGain);
-    this.#sirGain.connect(this.#master);
-    this.#sirOsc.start();
+  function levelClear(){
+    boot();if(muted)return;
+    seq([{f:523,d:0.10},{f:659,d:0.10},{f:784,d:0.10},{f:1047,d:0.10},
+         {f:784,d:0.06},{f:880,d:0.06},{f:1047,d:0.34}]);
   }
 
-  #sirLoop = () => {
-    if (!this.#ctx || !this.#sirGain) return;
-    const now   = this.#ctx.currentTime;
-    const table = this.#sirFast ? ArcadeSound.#SIR_FAST : ArcadeSound.#SIR_SLOW;
-    const step  = this.#sirFast ? 0.060 : 0.088;
-    const vol   = this.#muted   ? 0 : 0.07;   // quiet \u2014 must not clash with waka
+  // ════════════════════════ CONTINUOUS LOOPS ════════════════════════════
 
-    // Fill only 150ms ahead (short window \u2192 cancelScheduledValues clears quickly)
-    while (this.#sirNext < now + 0.15) {
-      const f = table[this.#sirStep % table.length];
-      this.#sirOsc.frequency.setValueAtTime(f, this.#sirNext);
-      this.#sirGain.gain.setValueAtTime(vol, this.#sirNext);
-      this.#sirGain.gain.setValueAtTime(0,   this.#sirNext + step * 0.45); // 45% duty
-      this.#sirNext += step;
-      this.#sirStep++;
+  // ── Siren ──────────────────────────────────────────────────────────────
+  function makeSiren(){
+    if(sirOsc)return;
+    sirOsc=ctx.createOscillator();sirGain=ctx.createGain();
+    sirOsc.type='sawtooth';sirOsc.frequency.value=200;sirGain.gain.value=0;
+    sirOsc.connect(sirGain);sirGain.connect(master);sirOsc.start();
+  }
+
+  function sirLoop(){
+    if(!ctx||!sirGain)return;
+    const now=ctx.currentTime;
+    const tbl=sirFast?SIR_FAST:SIR_SLOW;
+    // slow=88ms/step, fast=52ms/step  ← tempo difference audible like arcade
+    const step=sirFast?0.052:0.088;
+    const vol=muted?0:0.072;
+    while(sirNext<now+0.12){
+      sirOsc.frequency.setValueAtTime(tbl[sirStep%tbl.length],sirNext);
+      sirGain.gain.setValueAtTime(vol,sirNext);
+      sirGain.gain.setValueAtTime(0,sirNext+step*0.40); // 40% duty
+      sirNext+=step;sirStep++;
     }
-    this.#sirRaf = requestAnimationFrame(this.#sirLoop);
+    sirRaf=requestAnimationFrame(sirLoop);
+  }
+
+  function sirenStart(){
+    boot();makeSiren();
+    // Cancel any leftover schedule before starting fresh
+    if(sirRaf){cancelAnimationFrame(sirRaf);sirRaf=null;}
+    if(sirGain&&ctx){
+      const now=ctx.currentTime;
+      sirGain.gain.cancelScheduledValues(now);
+      sirGain.gain.setValueAtTime(0,now);
+    }
+    sirFast=false;sirStep=0;sirNext=ctx.currentTime+0.01;
+    sirLoop();
+  }
+
+  function sirenFast(){
+    // If siren not yet started, start it
+    if(!sirOsc){sirenStart();}
+    // Cancel current schedule, switch to fast table immediately
+    if(sirRaf){cancelAnimationFrame(sirRaf);sirRaf=null;}
+    if(sirGain&&ctx){
+      const now=ctx.currentTime;
+      sirGain.gain.cancelScheduledValues(now);
+      sirGain.gain.setValueAtTime(0,now);
+    }
+    sirFast=true;sirStep=0;sirNext=ctx.currentTime+0.01;
+    sirLoop();
+  }
+
+  function sirenStop(){
+    if(sirRaf){cancelAnimationFrame(sirRaf);sirRaf=null;}
+    if(sirGain&&ctx){
+      const now=ctx.currentTime;
+      sirGain.gain.cancelScheduledValues(now);
+      sirGain.gain.setValueAtTime(0,now);
+    }
+  }
+
+  // ── Fright warble ──────────────────────────────────────────────────────
+  function makeFright(){
+    if(frtOsc)return;
+    frtOsc=ctx.createOscillator();frtGain=ctx.createGain();
+    frtOsc.type='square';frtOsc.frequency.value=138;frtGain.gain.value=0;
+    frtOsc.connect(frtGain);frtGain.connect(master);frtOsc.start();
+  }
+
+  function frtLoop(){
+    if(!ctx||!frtGain)return;
+    const now=ctx.currentTime,step=0.068,vol=muted?0:0.088;
+    while(frtNext<now+0.12){
+      frtOsc.frequency.setValueAtTime(FRT_TBL[frtStep%FRT_TBL.length],frtNext);
+      frtGain.gain.setValueAtTime(vol,frtNext);
+      frtGain.gain.setValueAtTime(0,frtNext+step*0.50);
+      frtNext+=step;frtStep++;
+    }
+    frtRaf=requestAnimationFrame(frtLoop);
+  }
+
+  function frightStart(){
+    sirenStop(); // instant silence before warble starts
+    boot();makeFright();
+    if(frtRaf){cancelAnimationFrame(frtRaf);frtRaf=null;}
+    if(frtGain&&ctx){
+      const now=ctx.currentTime;
+      frtGain.gain.cancelScheduledValues(now);
+      frtGain.gain.setValueAtTime(0,now);
+    }
+    frtStep=0;frtNext=ctx.currentTime+0.01;
+    frtLoop();
+  }
+
+  function frightStop(){
+    if(frtRaf){cancelAnimationFrame(frtRaf);frtRaf=null;}
+    if(frtGain&&ctx){
+      const now=ctx.currentTime;
+      frtGain.gain.cancelScheduledValues(now);
+      frtGain.gain.setValueAtTime(0,now);
+    }
+  }
+
+  // ── Mute ───────────────────────────────────────────────────────────────
+  function toggleMute(){
+    muted=!muted;
+    if(master&&ctx){
+      const now=ctx.currentTime;
+      master.gain.cancelScheduledValues(now);
+      master.gain.setValueAtTime(muted?0:0.30,now);
+    }
+    return muted;
+  }
+
+  // ── play() dispatcher ──────────────────────────────────────────────────
+  function play(name,arg){
+    switch(name){
+      case 'start':      return start();
+      case 'waka':       return waka();
+      case 'power':      return power();
+      case 'ghost':
+      case 'eat-ghost':  return ghost(arg);
+      case 'fruit':      return fruit(arg);
+      case 'death':      return death();
+      case 'levelClear': return levelClear();
+    }
+  }
+
+  return {
+    play,start,waka,power,ghost,fruit,death,levelClear,
+    sirenStart,sirenFast,sirenStop,frightStart,frightStop,toggleMute,
+    get isMuted(){return muted;},
   };
-
-  sirenStart() {
-    this.#boot();
-    this.#makeSiren();
-    this.#sirFast = false;
-    this.#sirStep = 0;
-    this.#sirNext = this.#ctx.currentTime + 0.01;
-    if (!this.#sirRaf) this.#sirLoop();
-  }
-
-  sirenFast() {
-    if (!this.#sirOsc) { this.sirenStart(); }
-    this.#sirFast = true;
-  }
-
-  sirenStop() {
-    // Cancel rAF so no more scheduling
-    if (this.#sirRaf) { cancelAnimationFrame(this.#sirRaf); this.#sirRaf = null; }
-    // Cancel ALL pre-buffered gain automation \u2192 true instant silence
-    if (this.#sirGain && this.#ctx) {
-      const now = this.#ctx.currentTime;
-      this.#sirGain.gain.cancelScheduledValues(now);
-      this.#sirGain.gain.setValueAtTime(0, now);
-    }
-    // Oscillator stays running silently \u2014 avoids cost of re-creating nodes on next sirenStart
-  }
-
-  // \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 FRIGHT helpers
-  #makeFright() {
-    if (this.#frtOsc) return;
-    this.#frtOsc  = this.#ctx.createOscillator();
-    this.#frtGain = this.#ctx.createGain();
-    this.#frtOsc.type = 'square';
-    this.#frtOsc.frequency.value = 138;
-    this.#frtGain.gain.value = 0;
-    this.#frtOsc.connect(this.#frtGain);
-    this.#frtGain.connect(this.#master);
-    this.#frtOsc.start();
-  }
-
-  #frtLoop = () => {
-    if (!this.#ctx || !this.#frtGain) return;
-    const now  = this.#ctx.currentTime;
-    const step = 0.072;
-    const vol  = this.#muted ? 0 : 0.09;
-
-    while (this.#frtNext < now + 0.15) {
-      const f = ArcadeSound.#FRT_TABLE[this.#frtStep % ArcadeSound.#FRT_TABLE.length];
-      this.#frtOsc.frequency.setValueAtTime(f, this.#frtNext);
-      this.#frtGain.gain.setValueAtTime(vol, this.#frtNext);
-      this.#frtGain.gain.setValueAtTime(0,   this.#frtNext + step * 0.5);
-      this.#frtNext += step;
-      this.#frtStep++;
-    }
-    this.#frtRaf = requestAnimationFrame(this.#frtLoop);
-  };
-
-  frightStart() {
-    this.sirenStop();   // silence siren instantly before starting fright
-    this.#boot();
-    this.#makeFright();
-    this.#frtStep = 0;
-    this.#frtNext = this.#ctx.currentTime + 0.01;
-    if (!this.#frtRaf) this.#frtLoop();
-  }
-
-  frightStop() {
-    if (this.#frtRaf) { cancelAnimationFrame(this.#frtRaf); this.#frtRaf = null; }
-    if (this.#frtGain && this.#ctx) {
-      const now = this.#ctx.currentTime;
-      this.#frtGain.gain.cancelScheduledValues(now);
-      this.#frtGain.gain.setValueAtTime(0, now);
-    }
-  }
-
-  // ----------------------------------------------------------------- mute ---
-  toggleMute() {
-    this.#muted = !this.#muted;
-    if (this.#master && this.#ctx) {
-      const now = this.#ctx.currentTime;
-      this.#master.gain.cancelScheduledValues(now);
-      this.#master.gain.setValueAtTime(this.#muted ? 0 : 0.28, now);
-    }
-    return this.#muted;
-  }
-}
-
-export const snd = new ArcadeSound();
+})();
