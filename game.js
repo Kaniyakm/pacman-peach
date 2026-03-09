@@ -15,6 +15,23 @@
 
 'use strict';
 
+// ── SOUND safety shim ────────────────────────────────────────────────────
+// Guarantees window.SOUND exists even if sound.js loads late or fails.
+// All methods are no-ops until sound.js overwrites window.SOUND.
+if (typeof window.SOUND === 'undefined') {
+  const noop = () => {};
+  window.SOUND = {
+    play:noop, start:noop, waka:noop, power:noop, ghost:noop,
+    fruit:noop, death:noop, levelClear:noop,
+    sirenStart:noop, sirenFast:noop, sirenStop:noop,
+    frightStart:noop, frightStop:noop,
+    toggleMute:(()=>false), isMuted:false,
+  };
+}
+// Convenience alias
+const SOUND = window.SOUND;
+
+
 // ══════════════════════════════════════════════════════════
 // § 1  TRIBUTE
 // ══════════════════════════════════════════════════════════
