@@ -467,10 +467,12 @@ class Pacman extends Entity {
 // § 14  GHOST
 // ══════════════════════════════════════════════════════════
 const GHOST_DEFS = Object.freeze([
-  {name:'BLINKY', color:'#FF0000', startCol:10, startRow:9,  houseCol:10, houseRow:9 },
-  {name:'PINKY',  color:'#FFB8FF', startCol:9,  startRow:10, houseCol:9,  houseRow:10},
-  {name:'INKY',   color:'#00FFFF', startCol:10, startRow:10, houseCol:10, houseRow:10},
-  {name:'CLYDE',  color:'#FFB852', startCol:11, startRow:10, houseCol:11, houseRow:10},
+  // Blinky starts OUTSIDE the house (row 8 = open area above door)
+  {name:'BLINKY', color:'#FF0000', startCol:10, startRow:8,  houseCol:10, houseRow:9 },
+  // Pinky/Inky/Clyde start inside (row 9 = house interior top)
+  {name:'PINKY',  color:'#FFB8FF', startCol:10, startRow:9,  houseCol:10, houseRow:9 },
+  {name:'INKY',   color:'#00FFFF', startCol: 9, startRow:9,  houseCol:9,  houseRow:9 },
+  {name:'CLYDE',  color:'#FFB852', startCol:11, startRow:9,  houseCol:11, houseRow:9 },
 ]);
 
 // Simple AI: each ghost targets pac-man (or runs away during scatter)
@@ -515,7 +517,8 @@ class Ghost {
     this.x=def.startCol*T+T/2;
     this.y=def.startRow*T+T/2;
     // Staggered delays (frames): Blinky exits instantly
-    this.#leaveCountdown = [0, 80, 160, 240][idx];
+    // 0=instant (Blinky outside), 60/120/180 frames for Pinky/Inky/Clyde
+    this.#leaveCountdown = [0, 60, 120, 180][idx];
     // Blinky starts outside already
     if(idx===0){ this.#inHouse=false; this.#exitStep=3; this.dx=-1; }
     else { this.dy=1; } // bob down first
@@ -570,28 +573,32 @@ class Ghost {
       // Count down before trying to leave
       if(this.#leaveCountdown>0){ this.#leaveCountdown--; return; }
 
-      const exitX=10*T+T/2;  // door is at col 10
-      const doorY=9*T+T/2;   // row 9 is just inside the door
+      // Door centre = col 10. Must exit upward past row 7 (open corridor).
+      const exitX = 10*T + T/2;   // horizontal centre of ghost door
+      const exitY =  7*T + T/2;   // row 7: first fully open row above house
 
       if(this.#exitStep===0){
-        // Step 1: slide horizontally to exit column
-        if(Math.abs(this.x-exitX)<spd+0.5){
-          this.x=exitX; this.dy=-1; this.dx=0;
-          this.#exitStep=1;
+        // Slide horizontally to door centre column
+        const diff = exitX - this.x;
+        if(Math.abs(diff) < spd+0.5){
+          this.x = exitX;
+          this.dy = -1; this.dx = 0;
+          this.#exitStep = 1;
         } else {
-          this.x += this.x<exitX ? spd : -spd;
+          this.x += diff > 0 ? spd : -spd;
         }
       }
 
       if(this.#exitStep===1){
-        // Step 2: move upward through door
-        if(this.y<=doorY+spd){
-          this.y=doorY;
-          this.#inHouse=false;
-          this.#exitStep=3;
-          this.dx=Math.random()<0.5?-1:1; this.dy=0;  // turn left or right
-        } else {
-          this.y-=spd;
+        // Move straight up until clear of house structure
+        this.y -= spd;
+        if(this.y <= exitY){
+          this.y = exitY;
+          this.#inHouse = false;
+          this.#exitStep = 3;
+          // Turn left or right depending on which side of map
+          this.dx = (this.#idx % 2 === 0) ? -1 : 1;
+          this.dy = 0;
         }
       }
       return;
@@ -921,13 +928,18 @@ class Game {
     while(this.#fruitSpawnDots.length && this.#dotEatenCount>=this.#fruitSpawnDots[0]){
       this.#fruitSpawnDots.shift();
       // Random position near centre of maze (away from walls)
+      // All spots verified against BASE_MAP — every one is a dot cell (value=2)
       const SPOTS=[
-        {x:10*T+T/2, y:17*T+T/2},
-        {x:5*T+T/2,  y:11*T+T/2},
-        {x:15*T+T/2, y:11*T+T/2},
-        {x:10*T+T/2, y:6*T+T/2},
-        {x:3*T+T/2,  y:17*T+T/2},
-        {x:17*T+T/2, y:17*T+T/2},
+        {x: 9*T+T/2, y: 1*T+T/2},   // top corridor left-centre
+        {x:11*T+T/2, y: 1*T+T/2},   // top corridor right-centre
+        {x: 9*T+T/2, y: 4*T+T/2},   // upper open area left
+        {x:11*T+T/2, y: 4*T+T/2},   // upper open area right
+        {x: 1*T+T/2, y: 6*T+T/2},   // left side mid
+        {x:19*T+T/2, y: 6*T+T/2},   // right side mid
+        {x: 1*T+T/2, y:14*T+T/2},   // left side lower
+        {x:19*T+T/2, y:14*T+T/2},   // right side lower
+        {x: 9*T+T/2, y:20*T+T/2},   // bottom corridor left
+        {x:11*T+T/2, y:20*T+T/2},   // bottom corridor right
       ];
       const spot=SPOTS[Math.floor(Math.random()*SPOTS.length)];
       this.#spawnFruit(spot.x, spot.y);
