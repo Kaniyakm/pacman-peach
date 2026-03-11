@@ -64,7 +64,7 @@
       <div class="logo-sub">Georgia Peach Edition · For Barbara Jackson</div>
     </div>
   </div>
-  <div class="babs-badge">🍑 TRIPLE PEACH POINTS</div>
+  <div class="babs-badge">🍑 BABS' PEACH EDITION</div>
 </header>
 
 <!-- ══════════════════════════════════════
@@ -104,12 +104,28 @@
 
     <div class="panel-block">
       <p class="panel-label">ACTIVE BONUS</p>
-      <div class="active-fruit-wrap" id="active-fruit-wrap">
-        <span class="active-fruit-icon" id="active-fruit-icon">·</span>
+      <div class="active-fruit-wrap no-fruit" id="active-fruit-wrap">
+        <span class="active-fruit-icon" id="active-fruit-icon"></span>
         <div class="active-fruit-info">
-          <span class="active-fruit-name" id="active-fruit-name">—</span>
+          <span class="active-fruit-name" id="active-fruit-name"></span>
           <span class="active-fruit-pts"  id="active-fruit-pts"></span>
         </div>
+      </div>
+    </div>
+
+    <div class="panel-block">
+      <p class="panel-label">FRUIT KEY</p>
+      <div class="fruit-key">
+        <div class="fk-row"><span class="fk-i">🍒</span><span class="fk-n">Cherry</span>    <span class="fk-v">100</span></div>
+        <div class="fk-row"><span class="fk-i">🍓</span><span class="fk-n">Strawberry</span><span class="fk-v">300</span></div>
+        <div class="fk-row"><span class="fk-i">🍊</span><span class="fk-n">Orange</span>     <span class="fk-v">500</span></div>
+        <div class="fk-row"><span class="fk-i">🍎</span><span class="fk-n">Apple</span>      <span class="fk-v">700</span></div>
+        <div class="fk-row"><span class="fk-i">🍈</span><span class="fk-n">Melon</span>      <span class="fk-v">1000</span></div>
+        <div class="fk-row"><span class="fk-i">🍇</span><span class="fk-n">Grapes</span>     <span class="fk-v">2000</span></div>
+        <div class="fk-row"><span class="fk-i">🍉</span><span class="fk-n">W.melon</span>    <span class="fk-v">3000</span></div>
+        <div class="fk-row"><span class="fk-i">🔔</span><span class="fk-n">Bell</span>       <span class="fk-v">3000</span></div>
+        <div class="fk-row"><span class="fk-i">🗝️</span><span class="fk-n">Key</span>        <span class="fk-v">5000</span></div>
+        <div class="fk-row fk-peach"><span class="fk-i">🍑</span><span class="fk-n">Peach ★</span><span class="fk-v">7500</span></div>
       </div>
     </div>
 
@@ -129,7 +145,7 @@
           Georgia's greatest Pac-Man player 🍑
         </p>
         <div class="ov-divider"></div>
-        <p class="ov-hint peach">🍑 PEACH = TRIPLE POINTS!</p>
+        <p class="ov-hint peach">🍑 PEACH = 7500 PTS — HIGHEST BONUS!</p>
         <div class="ov-divider"></div>
         <p class="ov-hint">PRESS <kbd>ENTER</kbd> OR <kbd>SPACE</kbd></p>
         <p class="ov-hint dim">WASD / ARROW KEYS TO MOVE</p>
@@ -215,7 +231,7 @@
 </main>
 
 <!-- ══ MUTE BUTTON ══ -->
-<button id="mute-btn" onclick="if(window.SOUND){window.SOUND.toggleMute();this.textContent=window.SOUND.isMuted?'🔇 MUTED':'🔊 SOUND'}">🔊 SOUND</button>
+<button id="mute-btn">🔊 SOUND</button>
 
 <!-- ══ MOBILE D-PAD ══ -->
 <div class="dpad">
@@ -227,6 +243,22 @@
   </div>
   <button class="dpad-btn" id="dpad-down">▼</button>
 </div>
+
+<!-- Boot AudioContext on first user gesture (browser autoplay policy) -->
+<script>
+  (function(){
+    function warmBoot(){
+      if(window.SOUND && window.SOUND._boot) window.SOUND._boot();
+      // Also resume if suspended
+      ['click','keydown','touchstart'].forEach(function(e){
+        document.removeEventListener(e, warmBoot);
+      });
+    }
+    ['click','keydown','touchstart'].forEach(function(e){
+      document.addEventListener(e, warmBoot, {once:true, passive:true});
+    });
+  })();
+</script>
 
 <!-- Sound engine loads first, then game.js — defer preserves order -->
 <script src="sound.js" defer></script>
