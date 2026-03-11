@@ -17,7 +17,7 @@ if (typeof window.SOUND === 'undefined') {
     frightStart:noop, frightStop:noop,
     eyesStart:noop, eyesStop:noop,
     intermissionStart:(cb)=>{if(cb)cb();}, intermissionStop:noop, intermissionBump:noop,
-    toggleMute:()=>false, isMuted:false,
+    toggleMute:()=>false, isMuted:false, _boot:noop,
   };
 }
 const SOUND = window.SOUND;
@@ -63,37 +63,40 @@ const STATE = Object.freeze({
 // ══════════════════════════════════════════════════════════
 // 0=path(gets dot), 1=wall, 2=power pellet, 3=ghost house interior
 // 4=door(ghost passable, pac blocked), 9=tunnel(no dot, wraps)
+// TT encoding: WALL=1  DOT=2  POWER=3  HOUSE=4  DOOR=5  EMPTY=0
+// Tunnels(col 0-5 & 22-27 rows 12,15) = 0 (EMPTY — no dot, wraps)
+// All walkable path cells = 2 (DOT)
 const BASE_MAP = [
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],  // 0
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1],  // 1
-  [1,0,1,1,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,1,1,0,1],  // 2
-  [1,2,1,1,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,1,1,2,1],  // 3  power pellets
-  [1,0,1,1,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,1,1,0,1],  // 4
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],  // 5  full corridor
-  [1,0,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,1,0,1,1,0,1,1,1,1,0,1],  // 6
-  [1,0,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,1,0,1,1,0,1,1,1,1,0,1],  // 7
-  [1,0,0,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,0,0,0,0,0,1],  // 8
-  [1,1,1,1,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,1,1,1,1],  // 9
-  [1,1,1,1,1,1,0,1,1,1,1,1,0,0,0,0,1,1,1,1,1,0,1,1,1,1,1,1],  // 10
-  [1,1,1,1,1,1,0,1,1,0,0,0,0,1,1,0,0,0,0,1,1,0,1,1,1,1,1,1],  // 11
-  [9,9,9,9,9,9,0,1,1,0,1,1,3,3,3,3,1,1,0,1,1,0,9,9,9,9,9,9],  // 12  tunnel row
-  [1,1,1,1,1,1,0,1,1,0,1,3,3,3,3,3,3,1,0,1,1,0,1,1,1,1,1,1],  // 13
-  [1,1,1,1,1,1,0,0,0,0,1,3,4,3,3,4,3,1,0,0,0,0,1,1,1,1,1,1],  // 14  DOOR cols 12,15
-  [9,9,9,9,9,9,0,1,1,0,1,1,1,1,1,1,1,1,0,1,1,0,9,9,9,9,9,9],  // 15  tunnel row
-  [1,1,1,1,1,1,0,1,1,0,0,0,0,0,0,0,0,0,0,1,1,0,1,1,1,1,1,1],  // 16
-  [1,1,1,1,1,1,0,1,1,0,1,1,1,0,0,1,1,1,0,1,1,0,1,1,1,1,1,1],  // 17
-  [1,1,1,1,1,1,0,0,0,0,1,1,1,0,0,1,1,1,0,0,0,0,1,1,1,1,1,1],  // 18
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1],  // 19  full corridor
-  [1,0,1,1,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,1,1,0,1],  // 20
-  [1,2,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,2,1],  // 21  power pellets
-  [1,1,1,0,1,1,0,1,0,1,1,1,1,1,1,1,1,1,1,0,1,0,1,1,0,1,1,1],  // 22
-  [1,1,1,0,0,0,0,1,0,0,0,0,0,1,1,0,0,0,0,0,1,0,0,0,0,0,1,1],  // 23
-  [1,1,1,0,1,1,1,1,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,1,0,0,1,1],  // 24
-  [1,0,0,0,0,0,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,0,0,0,0,0,1],  // 25
-  [1,0,1,1,1,1,0,1,1,1,1,1,0,0,0,0,1,1,1,1,1,0,1,1,1,1,0,1],  // 26
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],  // 27  full corridor
-  [1,0,1,1,1,1,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,0,1,1,1,1,0,1],  // 28
-  [1,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,1],  // 29
+  [1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1],  // 1
+  [1,2,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,1,2,1],  // 2
+  [1,3,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,1,3,1],  // 3  power pellets
+  [1,2,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,1,2,1],  // 4
+  [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],  // 5  full corridor
+  [1,2,1,1,1,1,2,1,1,2,1,1,1,1,1,1,1,1,2,1,1,2,1,1,1,1,2,1],  // 6
+  [1,2,1,1,1,1,2,1,1,2,1,1,1,1,1,1,1,1,2,1,1,2,1,1,1,1,2,1],  // 7
+  [1,2,2,2,2,2,2,1,1,2,2,2,2,1,1,2,2,2,2,1,1,2,2,2,2,2,2,1],  // 8
+  [1,1,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,1,1,1],  // 9
+  [1,1,1,1,1,1,2,1,1,1,1,1,2,2,2,2,1,1,1,1,1,2,1,1,1,1,1,1],  // 10
+  [1,1,1,1,1,1,2,1,1,2,2,2,2,1,1,2,2,2,2,1,1,2,1,1,1,1,1,1],  // 11
+  [0,0,0,0,0,0,2,1,1,2,1,1,4,4,4,4,1,1,2,1,1,2,0,0,0,0,0,0],  // 12  tunnel
+  [1,1,1,1,1,1,2,1,1,2,1,4,4,4,4,4,4,1,2,1,1,2,1,1,1,1,1,1],  // 13
+  [1,1,1,1,1,1,2,2,2,2,1,4,5,4,4,5,4,1,2,2,2,2,1,1,1,1,1,1],  // 14  DOOR cols 12,15
+  [0,0,0,0,0,0,2,1,1,2,1,1,1,1,1,1,1,1,2,1,1,2,0,0,0,0,0,0],  // 15  tunnel
+  [1,1,1,1,1,1,2,1,1,2,2,2,2,2,2,2,2,2,2,1,1,2,1,1,1,1,1,1],  // 16
+  [1,1,1,1,1,1,2,1,1,2,1,1,1,2,2,1,1,1,2,1,1,2,1,1,1,1,1,1],  // 17
+  [1,1,1,1,1,1,2,2,2,2,1,1,1,2,2,1,1,1,2,2,2,2,1,1,1,1,1,1],  // 18
+  [1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1],  // 19  full corridor
+  [1,2,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,1,2,1],  // 20
+  [1,3,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,3,1],  // 21  power pellets
+  [1,1,1,2,1,1,2,1,2,1,1,1,1,1,1,1,1,1,1,2,1,2,1,1,2,1,1,1],  // 22
+  [1,1,1,2,2,2,2,1,2,2,2,2,2,1,1,2,2,2,2,2,1,2,2,2,2,2,1,1],  // 23
+  [1,1,1,2,1,1,1,1,1,1,1,1,2,1,1,2,1,1,1,1,1,1,1,1,2,2,1,1],  // 24
+  [1,2,2,2,2,2,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,2,2,2,2,2,1],  // 25
+  [1,2,1,1,1,1,2,1,1,1,1,1,2,2,2,2,1,1,1,1,1,2,1,1,1,1,2,1],  // 26
+  [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],  // 27  full corridor
+  [1,2,1,1,1,1,2,1,1,1,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,1,2,1],  // 28
+  [1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1],  // 29
   [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],  // 30
 ];
 
@@ -138,6 +141,30 @@ const SPRITES={
   pellets:new SpriteSheet('assets/sprites/pellets.png'),
 };
 
+// ── msPacSheet — 128×128 sheet from uploaded Babs face art ─────────────────
+// Cell layout: up(0,0) down(64,0) left(0,64) right(64,64)
+const _msPacImg   = new Image();
+let   _msPacReady = false;
+_msPacImg.onload  = () => { _msPacReady = true; };
+_msPacImg.onerror = () => console.warn('msPacSheet.png missing — using fallback');
+_msPacImg.src     = 'assets/sprites/msPacSheet.png';
+
+function drawMsPac(ctx, x, y, direction, size) {
+  if (!_msPacReady) return false;
+  const S = 64;
+  size = size ?? T * 1.55;   // slightly larger than tile so face is visible
+  const frameMap = {
+    right: {sx:64, sy:64},
+    left:  {sx: 0, sy:64},
+    up:    {sx: 0, sy: 0},
+    down:  {sx:64, sy: 0},
+  };
+  const f = frameMap[direction] ?? frameMap.right;
+  ctx.drawImage(_msPacImg, f.sx, f.sy, S, S, x - size/2, y - size/2, size, size);
+  return true;
+}
+
+function pacDir(dx,dy){ return dx>0?'right':dx<0?'left':dy<0?'up':'down'; }
 function pacRow(dx,dy){if(dy<0)return 1;if(dy>0)return 2;return 0;}
 function pacCol(f){const n=f%16;return n<8?Math.floor(n/2):7-Math.floor(n/2);}
 function ghostDirCol(dx,dy,f){
@@ -152,29 +179,186 @@ const FRUIT_COL=new Map([
 // ══════════════════════════════════════════════════════════
 // § 4  CANVAS FALLBACK DRAWING
 // ══════════════════════════════════════════════════════════
+// ── Ms. Pac-Man "Babs" — peach body, red bow, lashes, beauty mole, red lips ──
 function fbPacman(ctx,x,y,dx,dy,mouth,dying,df){
-  const r=T*.47;ctx.save();ctx.translate(x,y);
-  ctx.shadowColor='#FFD700';ctx.shadowBlur=14;
-  const g=ctx.createRadialGradient(-r*.2,-r*.2,0,0,0,r);
-  g.addColorStop(0,'#FFE88A');g.addColorStop(.6,'#FFD700');g.addColorStop(1,'#FF9900');
+  const r=T*.47;
+  ctx.save();ctx.translate(x,y);
+
+  if(dying){
+    // Shrinking spin on death
+    const p=Math.min(df/80,1);
+    ctx.rotate(p*Math.PI*1.5);
+    ctx.globalAlpha=1-p*.8;
+    const a=p*Math.PI*.97;
+    const g=ctx.createRadialGradient(-r*.2,-r*.25,0,0,0,r);
+    g.addColorStop(0,'#FFD4A8');g.addColorStop(.55,'#FFAB76');g.addColorStop(1,'#FF7043');
+    ctx.fillStyle=g;
+    ctx.beginPath();ctx.moveTo(0,0);ctx.arc(0,0,r,a,Math.PI*2-a);ctx.closePath();ctx.fill();
+    ctx.restore();return;
+  }
+
+  const angle=Math.atan2(dy,dx||1);
+  ctx.rotate(angle);
+
+  // ── peach body ──────────────────────────────────────────────────────────
+  ctx.shadowColor='#FF8A65';ctx.shadowBlur=10;
+  const g=ctx.createRadialGradient(-r*.25,-r*.25,0,0,0,r*1.05);
+  g.addColorStop(0,'#FFE0C0');   // highlight
+  g.addColorStop(0.45,'#FFAB76'); // mid peach
+  g.addColorStop(0.82,'#FF7043'); // deep peach blush
+  g.addColorStop(1,  '#E64A19');  // edge shadow
   ctx.fillStyle=g;
-  if(dying){const p=Math.min(df/80,1),a=p*Math.PI*.97;ctx.beginPath();ctx.moveTo(0,0);ctx.arc(0,0,r,a,Math.PI*2-a);ctx.closePath();ctx.fill();}
-  else{ctx.rotate(Math.atan2(dy,dx||1));const m=mouth*Math.PI;ctx.beginPath();ctx.moveTo(0,0);ctx.arc(0,0,r,m,Math.PI*2-m);ctx.closePath();ctx.fill();}
+  const m=mouth*Math.PI;
+  ctx.beginPath();ctx.moveTo(0,0);ctx.arc(0,0,r,m,Math.PI*2-m);ctx.closePath();ctx.fill();
+
+  // ── peach blush cheek (facing direction = right of mouth opening) ──────
+  ctx.save();
+  ctx.globalAlpha=0.38;
+  ctx.fillStyle='#FF5252';
+  ctx.beginPath();ctx.ellipse(r*.30,-r*.28,r*.22,r*.14,0.3,0,Math.PI*2);ctx.fill();
   ctx.restore();
-}
-function fbGhost(ctx,x,y,color,dx,dy,frightened,ft,frame){
-  const r=T*.47;ctx.save();ctx.translate(x,y);
-  let col=color;
-  if(frightened)col=(ft<60&&Math.floor(frame/7)%2===0)?'#FFF':'#0000BB';
-  ctx.shadowColor=frightened?'#000088':color;ctx.shadowBlur=10;ctx.fillStyle=col;
-  ctx.beginPath();ctx.arc(0,-r*.05,r,Math.PI,0);
-  const pts=[-r,-r/3,r/3,r];
-  for(let i=0;i<3;i++){const mx=(pts[i]+pts[i+1])/2,py=i%2===0?r*.85:r*.5;ctx.quadraticCurveTo(mx,py,pts[i+1],r*(i%2===0?.5:.85));}
-  ctx.closePath();ctx.fill();
-  [[-0.3,-0.22],[0.3,-0.22]].forEach(([ex,ey])=>{
-    ctx.fillStyle='white';ctx.beginPath();ctx.ellipse(r*ex,r*ey,r*.21,r*.25,0,0,Math.PI*2);ctx.fill();
-    if(!frightened){ctx.fillStyle='#1144FF';ctx.beginPath();ctx.arc(r*ex+dx*r*.09,r*ey+dy*r*.09,r*.12,0,Math.PI*2);ctx.fill();}
+
+  // ── red lips (bottom of face, left of mouth) ──────────────────────────
+  ctx.save();
+  ctx.globalAlpha=0.92;
+  ctx.fillStyle='#D32F2F';
+  // upper lip bow
+  ctx.beginPath();
+  ctx.moveTo(r*.10, r*.44);
+  ctx.quadraticCurveTo(r*.18, r*.36, r*.26, r*.44);
+  ctx.quadraticCurveTo(r*.34, r*.52, r*.26, r*.56);
+  ctx.quadraticCurveTo(r*.18, r*.62, r*.10, r*.56);
+  ctx.quadraticCurveTo(r*.02, r*.52, r*.10, r*.44);
+  ctx.fill();
+  ctx.restore();
+
+  // ── beauty mole ───────────────────────────────────────────────────────
+  ctx.save();
+  ctx.fillStyle='#4E342E';
+  ctx.beginPath();ctx.arc(r*.42,r*.18,r*.065,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+
+  // ── eyelashes (3 short lines above centre, rotated back to world space) ─
+  ctx.restore();   // undo the angle rotation so lashes are always "up"
+  ctx.save();ctx.translate(x,y);
+  ctx.strokeStyle='#4E342E';ctx.lineWidth=1.2;ctx.lineCap='round';
+  // lashes drawn relative to face centre at screen coords
+  const lashAngles=[-0.55,-0.25,0.05,0.35,0.60];
+  const lashR=r*0.92;
+  lashAngles.forEach((la,i)=>{
+    const bx=Math.cos(-Math.PI/2+la)*lashR;
+    const by=Math.sin(-Math.PI/2+la)*lashR;
+    const llen=i===2?r*.28:r*.20;
+    const nx2=bx+Math.cos(-Math.PI/2+la)*llen;
+    const ny2=by+Math.sin(-Math.PI/2+la)*llen;
+    ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(nx2,ny2);ctx.stroke();
   });
+
+  // ── red bow on top ─────────────────────────────────────────────────────
+  ctx.save();ctx.translate(0,-r*.88);
+  const bowColor='#E53935';
+  ctx.shadowColor='#B71C1C';ctx.shadowBlur=4;
+  // left wing
+  ctx.fillStyle=bowColor;
+  ctx.beginPath();
+  ctx.moveTo(0,0);
+  ctx.quadraticCurveTo(-r*.55,-r*.40,-r*.62,-r*.12);
+  ctx.quadraticCurveTo(-r*.40, r*.10,0,0);
+  ctx.fill();
+  // right wing
+  ctx.beginPath();
+  ctx.moveTo(0,0);
+  ctx.quadraticCurveTo( r*.55,-r*.40, r*.62,-r*.12);
+  ctx.quadraticCurveTo( r*.40, r*.10,0,0);
+  ctx.fill();
+  // bow knot centre
+  const kg=ctx.createRadialGradient(0,0,0,0,0,r*.18);
+  kg.addColorStop(0,'#FF8A80');kg.addColorStop(1,'#C62828');
+  ctx.fillStyle=kg;ctx.shadowBlur=0;
+  ctx.beginPath();ctx.ellipse(0,0,r*.16,r*.13,0,0,Math.PI*2);ctx.fill();
+  ctx.restore(); // bow
+
+  ctx.restore(); // lash translate
+  return;        // already restored everything above
+}
+
+// ── Ghost drawn as a little peach-tinted ghost with personality ────────────
+function fbGhost(ctx,x,y,color,dx,dy,frightened,ft,frame){
+  const r=T*.47;
+  ctx.save();ctx.translate(x,y);
+
+  if(frightened){
+    // Frightened: blue with white flash
+    const flash=ft<60&&Math.floor(frame/7)%2===0;
+    const fc=flash?'#FFFFFF':'#1565C0';
+    ctx.shadowColor=flash?'#90CAF9':'#0D47A1';ctx.shadowBlur=10;
+
+    // body
+    ctx.fillStyle=fc;
+    ctx.beginPath();ctx.arc(0,-r*.05,r,Math.PI,0);
+    const pts=[-r,-r/3,r/3,r];
+    for(let i=0;i<3;i++){const mx=(pts[i]+pts[i+1])/2,py=i%2===0?r*.85:r*.50;ctx.quadraticCurveTo(mx,py,pts[i+1],r*(i%2===0?.50:.85));}
+    ctx.closePath();ctx.fill();
+
+    // scared squiggle mouth
+    ctx.strokeStyle=flash?'#1565C0':'#90CAF9';ctx.lineWidth=1.4;ctx.lineCap='round';
+    ctx.beginPath();
+    const mpts=[[-r*.38,r*.25],[-r*.18,r*.10],[-r*.02,r*.25],[r*.14,r*.10],[r*.32,r*.25]];
+    ctx.moveTo(...mpts[0]);mpts.slice(1).forEach(p=>ctx.lineTo(...p));ctx.stroke();
+
+    // dot eyes
+    ctx.fillStyle=flash?'#1565C0':'#90CAF9';
+    [[-r*.22,-r*.20],[r*.22,-r*.20]].forEach(([ex,ey])=>{ctx.beginPath();ctx.arc(ex,ey,r*.10,0,Math.PI*2);ctx.fill();});
+    ctx.restore();return;
+  }
+
+  // ── Normal ghost body — peach-tinted with ghost colour ─────────────────
+  // Soft peach overlay blended with ghost colour
+  ctx.shadowColor=color;ctx.shadowBlur=9;
+  ctx.fillStyle=color;
+  ctx.beginPath();ctx.arc(0,-r*.05,r,Math.PI,0);
+  const pts2=[-r,-r/3,r/3,r];
+  for(let i=0;i<3;i++){const mx=(pts2[i]+pts2[i+1])/2,py=i%2===0?r*.85:r*.50;ctx.quadraticCurveTo(mx,py,pts2[i+1],r*(i%2===0?.50:.85));}
+  ctx.closePath();ctx.fill();
+
+  // Peach blush glow on body
+  ctx.save();ctx.globalAlpha=0.22;ctx.fillStyle='#FFAB76';
+  ctx.beginPath();ctx.arc(0,0,r*.7,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+
+  // ── Eyes ────────────────────────────────────────────────────────────────
+  [[-r*.28,-r*.18],[r*.28,-r*.18]].forEach(([ex,ey])=>{
+    // white sclera
+    ctx.fillStyle='#FFFFFF';
+    ctx.beginPath();ctx.ellipse(ex,ey,r*.20,r*.24,0,0,Math.PI*2);ctx.fill();
+    // iris
+    ctx.fillStyle='#1565C0';
+    ctx.beginPath();ctx.arc(ex+dx*r*.07,ey+dy*r*.07,r*.12,0,Math.PI*2);ctx.fill();
+    // pupil
+    ctx.fillStyle='#0D0D0D';
+    ctx.beginPath();ctx.arc(ex+dx*r*.09,ey+dy*r*.09,r*.06,0,Math.PI*2);ctx.fill();
+    // eyelash above each eye (2 lashes)
+    ctx.strokeStyle='#4E342E';ctx.lineWidth=1.0;ctx.lineCap='round';
+    [[-r*.10,-r*.06],[r*.06,-r*.08]].forEach(([lx,ly])=>{
+      ctx.beginPath();
+      ctx.moveTo(ex+lx, ey-r*.22);
+      ctx.lineTo(ex+lx+lx*.5, ey-r*.38);
+      ctx.stroke();
+    });
+  });
+
+  // ── Small beauty mole below right eye ───────────────────────────────────
+  ctx.fillStyle='#4E342E';
+  ctx.beginPath();ctx.arc(r*.38,r*.08,r*.045,0,Math.PI*2);ctx.fill();
+
+  // ── Tiny red bow on top ──────────────────────────────────────────────────
+  ctx.save();ctx.translate(0,-r*.95);
+  ctx.fillStyle='#E53935';
+  ctx.beginPath();ctx.moveTo(0,0);ctx.quadraticCurveTo(-r*.32,-r*.28,-r*.38,-r*.06);ctx.quadraticCurveTo(-r*.22,r*.06,0,0);ctx.fill();
+  ctx.beginPath();ctx.moveTo(0,0);ctx.quadraticCurveTo( r*.32,-r*.28, r*.38,-r*.06);ctx.quadraticCurveTo( r*.22,r*.06,0,0);ctx.fill();
+  ctx.fillStyle='#FF8A80';ctx.beginPath();ctx.ellipse(0,0,r*.10,r*.08,0,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+
   ctx.restore();
 }
 function fbFruit(ctx,x,y,def){
@@ -197,7 +381,7 @@ const FRUITS=Object.freeze([
   {id:'watermelon',emoji:'🍉',name:'Watermelon',basePoints:3000,mult:1,minLevel:7},
   {id:'bell',      emoji:'🔔',name:'Bell',      basePoints:3000,mult:1,minLevel:8},
   {id:'key',       emoji:'🗝️', name:'Key',       basePoints:5000,mult:1,minLevel:9},
-  {id:'peach',     emoji:'🍑',name:'Peach',     basePoints:500, mult:3,minLevel:1},
+  {id:'peach',     emoji:'🍑',name:'Peach',     basePoints:7500,mult:1,minLevel:1},
 ]);
 const PEACH_DEF = FRUITS.find(f=>f.id==='peach');
 
@@ -272,7 +456,7 @@ class ScorePopup{
     ctx.fillStyle=col;ctx.shadowColor=col;ctx.shadowBlur=8;
     ctx.font=`bold ${this.isTriple?9:8}px "Press Start 2P"`;
     ctx.textAlign='center';
-    if(this.isTriple)ctx.fillText('🍑×3',this.x,this.y-10);
+    if(this.isTriple)ctx.fillText('🍑 BABS!',this.x,this.y-10);
     ctx.fillText(this.v,this.x,this.y);
     ctx.restore();
   }
@@ -313,7 +497,7 @@ class Maze{
 
   isWall(col,row){const v=this.#grid[row]?.[col];return v===TT.WALL;}
   isGhostPassable(col,row){const v=this.#grid[row]?.[col];return v!==undefined&&v!==TT.WALL;}
-  isPacPassable(col,row){const v=this.#grid[row]?.[col];return v!==undefined&&v!==TT.WALL&&v!==TT.DOOR;}
+  isPacPassable(col,row){const v=this.#grid[row]?.[col];return v!==undefined&&v!==TT.WALL&&v!==TT.DOOR&&v!==TT.HOUSE;}
 
   get dotsLeft(){return this.#dotsLeft;}
   get cleared(){return this.#dotsLeft<=0;}
@@ -416,13 +600,40 @@ class Pacman extends Entity{
 
   draw(ctx,frame,dying=false){
     const{x,y}=this;
+
     if(dying){
-      const col=Math.min(7,Math.floor(this.deathFrame/(CFG.DEATH_FRAMES/8)));
-      if(!SPRITES.pacman.blit(ctx,col,3,x,y))fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,true,this.deathFrame);
+      // Death: face spins and shrinks using the msPac face
+      const pct = Math.min(this.deathFrame / CFG.DEATH_FRAMES, 1);
+      const size = T * 1.55 * (1 - pct * 0.85);
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(pct * Math.PI * 1.6);
+      ctx.globalAlpha = 1 - pct * 0.7;
+      const dir = pacDir(this.dx, this.dy);
+      if (!drawMsPac(ctx, 0, 0, dir, size)) {
+        fbPacman(ctx, 0, 0, this.dx, this.dy, this.#mouth, true, this.deathFrame);
+      }
+      ctx.restore();
       return;
     }
-    if(!SPRITES.pacman.blit(ctx,pacCol(frame),pacRow(this.dx,this.dy),x,y,undefined,this.dx<0))
-      fbPacman(ctx,x,y,this.dx,this.dy,this.#mouth,false,0);
+
+    // Living: draw face from msPacSheet
+    // Simulate mouth open/close by scaling slightly on x-axis (jaw bob)
+    const mouthBob = 1 - this.#mouth * 0.18;
+    const dir = pacDir(this.dx, this.dy);
+    ctx.save();
+    ctx.translate(x, y);
+    if (dir === 'left' || dir === 'right') {
+      ctx.scale(mouthBob, 1);
+    } else {
+      ctx.scale(1, mouthBob);
+    }
+    if (!drawMsPac(ctx, 0, 0, dir)) {
+      ctx.restore();
+      fbPacman(ctx, x, y, this.dx, this.dy, this.#mouth, false, 0);
+      return;
+    }
+    ctx.restore();
   }
 }
 
@@ -438,11 +649,12 @@ class Pacman extends Entity{
 //   0 = bob+wait   1 = slide to col13 centre   2 = rise to row11   3 = playing
 
 const GHOST_DEFS=Object.freeze([
-  // Blinky: starts outside above house at row 11
-  {name:'BLINKY',color:'#FF0000',startCol:13,startRow:11,houseCol:13,houseRow:13},
-  {name:'PINKY', color:'#FFB8FF',startCol:13,startRow:13,houseCol:13,houseRow:13},
-  {name:'INKY',  color:'#00FFFF',startCol:12,startRow:13,houseCol:12,houseRow:13},
-  {name:'CLYDE', color:'#FFB852',startCol:15,startRow:13,houseCol:15,houseRow:13},
+  // All 4 start in open corridors around the ghost house — rows 9-11, confirmed DOT cells
+  // houseCol/houseRow = where they return after being eaten (inside house)
+  {name:'BLINKY',color:'#FF0000',startCol:6, startRow:9, houseCol:13,houseRow:13},
+  {name:'PINKY', color:'#FFB8FF',startCol:21,startRow:9, houseCol:13,houseRow:13},
+  {name:'INKY',  color:'#00FFFF',startCol:6, startRow:11,houseCol:12,houseRow:13},
+  {name:'CLYDE', color:'#FFB852',startCol:21,startRow:11,houseCol:15,houseRow:13},
 ]);
 
 const SCATTER_TILES=[{col:25,row:1},{col:2,row:1},{col:25,row:29},{col:2,row:29}];
@@ -468,12 +680,13 @@ class Ghost{
     this.#idx=idx;this.#aiFn=AI_TARGET[idx];this.#speed=speed;
     this.x=def.startCol*T+T/2;
     this.y=def.startRow*T+T/2;
-    this.#leaveCountdown=[0,60,120,180][idx];
-    if(idx===0){
-      this.#inHouse=false;this.#exitPhase=3;this.dx=-1;this.dy=0;
-    } else {
-      this.dy=1;
-    }
+    // ALL ghosts start OUTSIDE in scatter/chase mode immediately
+    this.#inHouse=false; this.#exitPhase=3;
+    // Staggered initial freeze so they don't all move at once
+    this.#leaveCountdown=[0,30,60,90][idx];
+    // Spread directions: Blinky+Inky go left, Pinky+Clyde go right
+    const startDirs=[{dx:-1,dy:0},{dx:1,dy:0},{dx:-1,dy:0},{dx:1,dy:0}];
+    this.dx=startDirs[idx].dx; this.dy=startDirs[idx].dy;
   }
 
   get col(){return Math.floor(this.x/T);}
@@ -501,7 +714,7 @@ class Ghost{
     const def=GHOST_DEFS[this.#idx];
     this.#eaten=false;this.#frightened=false;
     this.#inHouse=true;this.#exitPhase=0;
-    this.#leaveCountdown=90;
+    this.#leaveCountdown=60;  // 1 second bob then exit
     this.x=def.houseCol*T+T/2;
     this.y=def.houseRow*T+T/2;
     this.dx=0;this.dy=1;
@@ -526,7 +739,7 @@ class Ghost{
       return;
     }
 
-    // ── B: Inside house — bob then exit ────────────────────────────────
+    // ── B: Returned to house after being eaten — bob then exit ──────────
     if(this.#inHouse){
       if(this.#exitPhase===0){
         this.y+=this.dy*spd*0.5;
@@ -536,7 +749,6 @@ class Ghost{
         if(this.#leaveCountdown>0){this.#leaveCountdown--;return;}
         this.#exitPhase=1;this.dx=0;this.dy=0;
       }
-
       if(this.#exitPhase===1){
         const doorX=13*T+T/2;
         const diff=doorX-this.x;
@@ -547,7 +759,6 @@ class Ghost{
         }
         return;
       }
-
       if(this.#exitPhase===2){
         this.y-=spd;
         const targetY=11*T+T/2;
@@ -560,7 +771,10 @@ class Ghost{
       }
     }
 
-    // ── C: Normal maze movement ─────────────────────────────────────────
+    // ── C: Staggered start freeze — ghost stands still until countdown ──
+    if(this.#leaveCountdown>0){this.#leaveCountdown--;return;}
+
+    // ── D: Normal maze movement ─────────────────────────────────────────
     const cx=this.col*T+T/2,cy=this.row*T+T/2;
     if(Math.abs(this.x-cx)<spd+0.5&&Math.abs(this.y-cy)<spd+0.5){
       this.x=cx;this.y=cy;
@@ -600,7 +814,8 @@ class Ghost{
   draw(ctx,frame,ft){
     const{x,y}=this;
     ctx.save();
-    if(this.#inHouse)ctx.globalAlpha=0.55;
+    // Only dim if inside house after being eaten (rare case)
+    if(this.#inHouse&&this.#exitPhase<3)ctx.globalAlpha=0.55;
     let drawn=false;
     if(this.#eaten){
       let dc=0;if(this.dx>0)dc=0;else if(this.dx<0)dc=2;else if(this.dy<0)dc=4;else dc=6;
@@ -629,17 +844,22 @@ const HUD={
   setReady(on){document.getElementById('ready-text')?.classList.toggle('overlay--hidden',!on);},
   setMuteBtn(m){const b=document.getElementById('mute-btn');if(b)b.textContent=m?'🔇 MUTED':'🔊 SOUND';},
   setActiveFruit(def){
+    const icon = document.getElementById('active-fruit-icon');
+    const name = document.getElementById('active-fruit-name');
+    const pts  = document.getElementById('active-fruit-pts');
+    const wrap = document.getElementById('active-fruit-wrap');
     if(!def){
-      document.getElementById('active-fruit-icon').textContent='·';
-      document.getElementById('active-fruit-name').textContent='—';
-      document.getElementById('active-fruit-pts').textContent='';
+      if(icon)icon.textContent='';
+      if(name)name.textContent='';
+      if(pts) pts.textContent='';
+      if(wrap)wrap.classList.add('no-fruit');
       return;
     }
-    const pts=def.basePoints*def.mult;
-    document.getElementById('active-fruit-icon').textContent=def.emoji||def.name[0];
-    document.getElementById('active-fruit-name').textContent=def.name+(def.mult>1?` ×${def.mult}!`:'');
-    document.getElementById('active-fruit-pts').textContent=`${pts} PTS`;
-    document.getElementById('active-fruit-icon').style.color=def.id==='peach'?'#FF8C69':'';
+    const p=def.basePoints*def.mult;
+    if(icon){icon.textContent=def.emoji||def.name[0];icon.style.color=def.id==='peach'?'#FF8C69':'';}
+    if(name)name.textContent=def.name+(def.id==='peach'?' ★ BABS!':'');
+    if(pts) pts.textContent=`${p} PTS`;
+    if(wrap)wrap.classList.remove('no-fruit');
   },
 };
 
@@ -792,7 +1012,7 @@ class Game{
       if(Math.hypot(fruit.x-this.#pac.x,fruit.y-this.#pac.y)<T*.9){
         const def=fruit.def,pts=def.basePoints*def.mult;
         this.#score.add(pts);
-        this.#popups.push(new ScorePopup(fruit.x,fruit.y,pts,def.mult>1));
+        this.#popups.push(new ScorePopup(fruit.x,fruit.y,pts,def.id==='peach'));
         fruit.collect();
         SOUND.fruit(def.id==='peach');
       }
